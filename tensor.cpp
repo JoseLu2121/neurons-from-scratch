@@ -4,6 +4,7 @@
 #include <sstream>
 #include <functional>
 #include <array>
+#include <cassert>
 
 using namespace std;
 
@@ -37,12 +38,12 @@ struct Tensor : std::enable_shared_from_this<Tensor> {
             //strides
             
             strides.resize(str.size());
-            strides.back() = 1;
-
+            strides[str.size() - 1] = 1;
             for (int i = str.size() - 2; i >= 0; --i) {
+                cout << "Entra strides" << endl;
                 strides[i] = strides[i + 1] * str[i + 1];
-      
-            }   
+            }
+
             
         }
 
@@ -100,7 +101,28 @@ struct Tensor : std::enable_shared_from_this<Tensor> {
             }
 
             cout << ")" << endl;
-        }
+        } 
+
+    Tensor getBatch(int index) {
+            assert(this->getDimension() == 3 && "Tensor must have three dimensions");
+            int batch_size = this->shape.at(0);
+            int rows       = this->shape.at(1);
+            int cols       = this->shape.at(2);
+
+            if (index < 0 || index >= batch_size)
+                throw std::out_of_range("Batch index out of range");
+
+            float* base_ptr = this->getData();
+            size_t offset   = index * this->strides.at(0);
+
+    
+            std::vector<float> batch_data(rows * cols);
+            for (int i = 0; i < rows * cols; ++i) {
+                batch_data[i] = base_ptr[offset + i];
+            }
+
+            return Tensor({rows, cols}, batch_data.data(), {});
+     }
 };
 
 static size_t product(const std::vector<int>& v) {
@@ -234,6 +256,29 @@ Tensor matrix_matrix_product(Tensor& m, Tensor& v){
     return Tensor(output_shape,output_data.data(),{m,v});
 }
 
+Tensor batch_matrix_product(Tensor& b, Tensor& m){
+    int b_batch = b.getShape().at(0);
+    int m_col = m.getShape().at(1);
+    int b_row = b.getShape().at(1);
+
+    vector<int> b_strides = b.strides;
+    vector<int> m_strides = m.strides;
+
+    vector<int> output_shape = {b_batch,b_row,m_col};
+    vector<float> output_data(product(output_shape));
+
+    for(int i=0; i<b_batch; i++){
+        Tensor matrix_batch_i = b.getBatch(i);
+       
+        Tensor matrix_output = matrix_matrix_product(matrix_batch_i,m);
+        float* matrix_data = matrix_output.getData();
+        std::copy(matrix_data, matrix_data + b_row*m_col,
+        output_data.begin() + b_row*m_col*i);
+    }
+
+    return Tensor(output_shape,output_data.data(), {b,m});
+}
+
 
 Tensor matmul(Tensor& a, Tensor& b){
     if (a.getDimension() == 1 && b.getDimension()==1){
@@ -262,20 +307,26 @@ Tensor matmul(Tensor& a, Tensor& b){
 
     }
 
+    if(a.getDimension() == 3 && b.getDimension()==2){
+
+        return batch_matrix_product(a,b);
+    }
+
 }
 
 
 int main() {
 
-    float data1[] = {4,3,2,1};
+    float data1[] = {6,5,4,3,2,1};
     float data2[] = {1,1,1,1,1,1,1,1,1,1,1,1};
-    auto tensor1 = Tensor({4},data1);
+    auto tensor1 = Tensor({2,3,2},data2);
  
 
-    auto tensor2 = Tensor({3,4},data2);
+    auto tensor2 = Tensor({2,3},data1);
 
 
-    auto tensor3 = matmul(tensor2,tensor1);
-    tensor3.printElements(12);
-    tensor3.printShape();
+    auto tensor3 = matmul(tensor1,tensor2);
+
+    tensor3.printElements(18);
+
 }
