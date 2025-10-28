@@ -9,131 +9,91 @@
 using namespace std;
 
 struct Tensor : std::enable_shared_from_this<Tensor> {
-    private:
-        shared_ptr<float[]> data;
-        size_t total_size;
-        vector<Tensor> childs;
-        shared_ptr<Tensor> grad;
-        std::function<void()> _backward;
+private:
+    shared_ptr<float[]> data;
+    size_t total_size;
+    vector<shared_ptr<Tensor>> childs;
+    shared_ptr<Tensor> grad;
+    std::function<void()> _backward;
+    size_t offset = 0;
 
-    public:
-        vector<int> shape;
-        vector<int> strides;
-        
-        Tensor(const vector<int>& str, float* data_param = nullptr, 
-        const vector<Tensor> childs_param = {}) : data(nullptr), 
-        total_size(1), shape(str), childs(childs_param) {
-            for(const auto& ptr : str){
-                total_size *= ptr;
+public:
+    vector<int> shape;
+    vector<int> strides;
+
+    Tensor(const vector<int>& str, float* data_param = nullptr,
+           const vector<shared_ptr<Tensor>> childs_param = {}) : data(nullptr),
+                                                                total_size(1), shape(str), childs(childs_param) {
+        for (const auto& ptr : str) total_size *= ptr;
+
+        if (total_size == 0) return;
+        data = shared_ptr<float[]>(new float[total_size]);
+        if (data_param != nullptr) {
+            for (size_t i = 0; i < total_size; i++) {
+                data[i] = data_param[i];
             }
-            
-            if(total_size == 0) return;
-            data = shared_ptr<float[]> (new float[total_size]);
-            if(data_param != nullptr){
-                for(size_t i = 0; i<total_size; i++){
-                    data[i] = data_param[i];
-                }
-            }  
-
-            //strides
-            
-            strides.resize(str.size());
-            strides[str.size() - 1] = 1;
-            for (int i = str.size() - 2; i >= 0; --i) {
-                cout << "Entra strides" << endl;
-                strides[i] = strides[i + 1] * str[i + 1];
-            }
-
-            
         }
 
-        Tensor(const Tensor& other) = default;
-        Tensor& operator=(const Tensor& other) = default;
-
-        Tensor(Tensor&& other) = default;
-        Tensor& operator=(Tensor&& other) = default;
-
-
-        void printElements(int count = 1) const {
-            cout << "Elementos del tensor" << endl;
-
-            for(int i = 0; i<count ; i++){
-                cout << "Elemento " << i << ": " << data[i] << endl;
-            }
-
+        strides.resize(str.size());
+        strides[str.size() - 1] = 1;
+        for (int i = str.size() - 2; i >= 0; --i) {
+            strides[i] = strides[i + 1] * str[i + 1];
         }
+    }
 
-        size_t getSize() const {
+    Tensor(const Tensor& other) = default;
+    Tensor& operator=(const Tensor& other) = default;
+    Tensor(Tensor&& other) = default;
+    Tensor& operator=(Tensor&& other) = default;
 
-            return total_size;
+    void printElements(int count = 1) const {
+        cout << "Elementos del tensor" << endl;
+        for (int i = 0; i < count; i++) {
+            cout << "Elemento " << i << ": " << data[i] << endl;
         }
+    }
 
-        vector<int> getStrides() const {
-            return strides;
+    size_t getSize() const { return total_size; }
+    vector<int> getStrides() const { return strides; }
+    float* getData() const { return data.get() + offset; }
+    vector<int> getShape() const { return shape; }
+    vector<shared_ptr<Tensor>> getChilds() const { return childs; }
+    int getDimension() const { return shape.size(); }
+    void setShape(vector<int> p) { shape = p; }
+
+    void printShape() {
+        cout << "Shape: ("; 
+        for (size_t i = 0; i < shape.size(); i++) {
+            cout << shape[i];
+            if (i != shape.size() - 1) cout << ", ";
         }
+        cout << ")" << endl;
+    }
 
-        float* getData() const {
-            return data.get();
-        }
+    shared_ptr<Tensor> getBatch(int index) {
+        assert(getDimension() == 3 && "Tensor must have three dimensions");
+        int batch_size = shape.at(0);
+        int rows = shape.at(1);
+        int cols = shape.at(2);
+        if (index < 0 || index >= batch_size)
+            throw std::out_of_range("Batch index out of range");
 
-        vector<int> getShape() const {
-            return shape;
-        }
-
-        vector<Tensor> getChilds() const {
-            return childs;
-        }
-
-        int getDimension() const {
-            return shape.size();
-        }
-
-        void setShape(vector<int> p)  {
-            this->shape = p;
-        }
-
-        void printShape() {
-            cout << "Shape: " << endl;
-            cout << "(" << endl;
-            for(auto& s:this->shape){
-                cout << s << endl;
-
-            }
-
-            cout << ")" << endl;
-        } 
-
-    Tensor getBatch(int index) {
-            assert(this->getDimension() == 3 && "Tensor must have three dimensions");
-            int batch_size = this->shape.at(0);
-            int rows       = this->shape.at(1);
-            int cols       = this->shape.at(2);
-
-            if (index < 0 || index >= batch_size)
-                throw std::out_of_range("Batch index out of range");
-
-            float* base_ptr = this->getData();
-            size_t offset   = index * this->strides.at(0);
-
-    
-            std::vector<float> batch_data(rows * cols);
-            for (int i = 0; i < rows * cols; ++i) {
-                batch_data[i] = base_ptr[offset + i];
-            }
-
-            return Tensor({rows, cols}, batch_data.data(), {});
-     }
+        auto tensor_view = make_shared<Tensor>(*this);
+        tensor_view->shape = {rows, cols};
+        tensor_view->offset = offset + index * strides[0];
+        tensor_view->strides = {cols,1};
+        tensor_view->childs = {shared_from_this()};
+        return tensor_view;
+    }
 };
 
-static size_t product(const std::vector<int>& v) {
+static size_t product(const vector<int>& v) {
     size_t p = 1;
     for (int x : v) p *= x;
     return p;
 }
 
-
 void broadcasting_inplace(Tensor& small, const Tensor& large) {
-    
     for (size_t d = 0; d < small.shape.size(); ++d) {
         if (small.shape[d] == 1 && large.shape[d] != 1) {
             small.strides[d] = 0;
@@ -141,192 +101,92 @@ void broadcasting_inplace(Tensor& small, const Tensor& large) {
     }
 }
 
-Tensor operator+(Tensor a, Tensor b) { 
-    const int wanted_dims = 3; 
-    while (a.getDimension() < wanted_dims) { a.shape.push_back(1); a.strides.push_back(0); }
-    while (b.getDimension() < wanted_dims) { b.shape.push_back(1); b.strides.push_back(0); }
 
- 
-    Tensor *large = &a, *small = &b;
- 
-    for (int d = 0; d < wanted_dims; ++d) {
-        if (a.shape[d] < b.shape[d]) { large = &b; small = &a; break; }
-        if (a.shape[d] > b.shape[d]) { large = &a; small = &b; break; }
-    }
-
-
-    broadcasting_inplace(*small, *large);
-
-
-    vector<int> out_shape(wanted_dims);
-    for (int d = 0; d < wanted_dims; ++d) {
-        if (a.shape[d] == b.shape[d]) out_shape[d] = a.shape[d];
-        else if (a.shape[d] == 1) out_shape[d] = b.shape[d];
-        else if (b.shape[d] == 1) out_shape[d] = a.shape[d];
-        else throw std::runtime_error("Shapes incompatibles para broadcasting");
-    }
-
-    size_t out_size = product(out_shape);
-
-    shared_ptr<float[]> out_data(new float[out_size]);
-
-    vector<int> idx(wanted_dims, 0);
-
-    float* Adata = a.getData();
-    float* Bdata = b.getData();
-    const vector<int>& Astr = a.getStrides();
-    const vector<int>& Bstr = b.getStrides();
-
-    for (size_t linear = 0; linear < out_size; ++linear) {
-
-        size_t offA = 0, offB = 0;
-        for (int d = 0; d < wanted_dims; ++d) {
-            int ia = (a.shape[d] == 1) ? 0 : idx[d];
-            int ib = (b.shape[d] == 1) ? 0 : idx[d];
-            offA += static_cast<size_t>(ia) * static_cast<size_t>(Astr[d]);
-            offB += static_cast<size_t>(ib) * static_cast<size_t>(Bstr[d]);
-        }
-        out_data[linear] = Adata[offA] + Bdata[offB];
-
-        for (int d = wanted_dims - 1; d >= 0; --d) {
-            idx[d]++;
-            if (idx[d] < out_shape[d]) break;
-            idx[d] = 0;
-        }
-    }
-
-    return Tensor(out_shape, out_data.get(), {a, b});
-}
-
-
-Tensor dot_scalar_product(Tensor& a, Tensor& b){
-    int size_output = a.getShape().at(0);
+Tensor dot_scalar_product(shared_ptr<Tensor> a, shared_ptr<Tensor> b) {
+    int size_output = a->getShape().at(0);
     vector<float> output_data(size_output);
-    for(int i=0 ; i<size_output; i++){
-        output_data[i] = a.getData()[i] * b.getData()[i];
-
-    }
-    return Tensor({size_output}, output_data.data(),{a,b});
+    for (int i = 0; i < size_output; i++)
+        output_data[i] = a->getData()[i] * b->getData()[i];
+    return Tensor({size_output}, output_data.data(), {});
 }
 
-Tensor vector_matrix_product(Tensor& v, Tensor& m){
-    vector<int> v_strides = v.getStrides();
-    vector<int> m_strides = m.getStrides();
-
-    int column_v = v.getShape().at(1);
-    int column_m = m.getShape().at(1);
+Tensor vector_matrix_product(shared_ptr<Tensor> v, shared_ptr<Tensor> m) {
+    int column_v = v->getShape().at(1);
+    int column_m = m->getShape().at(1);
     vector<float> output_data(column_m);
-
-    for(int i=0; i<column_m; i++){
-        float sum = 0.0;
-        for(int j=0; j<column_v; j++){
-            sum += v.getData()[j] * m.getData()[i+j*m.strides.at(0)];
+    for (int i = 0; i < column_m; i++) {
+        float sum = 0;
+        for (int j = 0; j < column_v; j++) {
+            sum += v->getData()[j] * m->getData()[i + j * m->strides.at(0)];
         }
         output_data[i] = sum;
-
     }
-
-    return Tensor({column_m}, output_data.data(), {v,m});
+    return Tensor({column_m}, output_data.data(), {});
 }
 
-
-Tensor matrix_matrix_product(Tensor& m, Tensor& v){
-    vector<int> m_strides = m.getStrides();
-    vector<int> v_strides = v.getStrides();
-
-    int row_m = m.shape.at(0);
-    int col_v = v.shape.at(1);
-    int col_m = m.shape.at(1);
+Tensor matrix_matrix_product(shared_ptr<Tensor> m, shared_ptr<Tensor> v) {
+    int row_m = m->shape.at(0);
+    int col_v = v->shape.at(1);
+    int col_m = m->shape.at(1);
     vector<int> output_shape = {row_m, col_v};
-
     vector<float> output_data(product(output_shape));
-    for(int i=0; i<row_m; i++){
-        for(int j=0; j<col_v; j++){
-            float sum = 0.0;
-            for(int k=0; k<col_m;k++){
-                sum += m.getData()[k + i*m_strides.at(0)] * v.getData()[j + 
-                k*v_strides.at(0)];
-            }
-
-            output_data[i*v_strides.at(0) + j]  = sum;
+    for (int i = 0; i < row_m; i++) {
+        for (int j = 0; j < col_v; j++) {
+            float sum = 0;
+            for (int k = 0; k < col_m; k++)
+                sum += m->getData()[k + i * m->strides.at(0)] * v->getData()[j + k * v->strides.at(0)];
+            output_data[i * col_v + j] = sum;
         }
-
     }
-
-    return Tensor(output_shape,output_data.data(),{m,v});
+    return Tensor(output_shape, output_data.data(), {});
 }
 
-Tensor batch_matrix_product(Tensor& b, Tensor& m){
-    int b_batch = b.getShape().at(0);
-    int m_col = m.getShape().at(1);
-    int b_row = b.getShape().at(1);
+Tensor batch_matrix_product(shared_ptr<Tensor> b, shared_ptr<Tensor> m) {
+    int b_batch = b->getShape().at(0);
+    int m_col = m->getShape().at(1);
+    int b_row = b->getShape().at(1);
 
-    vector<int> b_strides = b.strides;
-    vector<int> m_strides = m.strides;
+    vector<int> output_shape = {b_batch, b_row};
+    if (m_col != 1) output_shape.push_back(m_col);
 
-    vector<int> output_shape = {b_batch,b_row,m_col};
     vector<float> output_data(product(output_shape));
-
-    for(int i=0; i<b_batch; i++){
-        Tensor matrix_batch_i = b.getBatch(i);
-       
-        Tensor matrix_output = matrix_matrix_product(matrix_batch_i,m);
+    for (int i = 0; i < b_batch; i++) {
+        auto matrix_batch_i = b->getBatch(i);
+        Tensor matrix_output = matrix_matrix_product(matrix_batch_i, m);
         float* matrix_data = matrix_output.getData();
-        std::copy(matrix_data, matrix_data + b_row*m_col,
-        output_data.begin() + b_row*m_col*i);
+        std::copy(matrix_data, matrix_data + b_row * m_col, output_data.begin() + b_row * m_col * i);
     }
-
-    return Tensor(output_shape,output_data.data(), {b,m});
+    return Tensor(output_shape, output_data.data(), {});
 }
 
-
-Tensor matmul(Tensor& a, Tensor& b){
-    if (a.getDimension() == 1 && b.getDimension()==1){
-        // if 1d * 1d scalar vector product
-        return dot_scalar_product(a,b);
+Tensor matmul(shared_ptr<Tensor> a, shared_ptr<Tensor> b) {
+    if (a->getDimension() == 1 && b->getDimension() == 1) return dot_scalar_product(a, b);
+    if (a->getDimension() == 1 && b->getDimension() == 2) {
+        a->shape.insert(a->shape.begin(), 1);
+        a->strides.insert(a->strides.begin(), 0);
+        return vector_matrix_product(a, b);
     }
-
-    if(a.getDimension() == 1 && b.getDimension() == 2){
-        // we transform the 1d to 2d
-        a.shape.insert(a.shape.begin(),1);
-
-        a.strides.insert(a.strides.begin(),0);
-        // we mult 1D x 2D
-        return vector_matrix_product(a,b);
+    if (a->getDimension() == 2 && b->getDimension() == 1) {
+        b->shape.push_back(1);
+        b->strides.push_back(0);
+        return matrix_matrix_product(a, b);
     }
-
-    if(a.getDimension() == 2 && b.getDimension() == 1){
-        b.shape.push_back(1);
-        b.strides.push_back(0);
-
-        return matrix_matrix_product(a,b);
+    if (a->getDimension() == 2 && b->getDimension() == 2) return matrix_matrix_product(a, b);
+    if (a->getDimension() == 3 && b->getDimension() == 2) return batch_matrix_product(a, b);
+    if (a->getDimension() == 3 && b->getDimension() == 1) {
+        b->shape.push_back(1);
+        b->strides.push_back(0);
+        return batch_matrix_product(a, b);
     }
-
-    if(a.getDimension() == 2 && b.getDimension() == 2){
-        return matrix_matrix_product(a,b);
-
-    }
-
-    if(a.getDimension() == 3 && b.getDimension()==2){
-
-        return batch_matrix_product(a,b);
-    }
-
+    throw runtime_error("Dimensiones no soportadas");
 }
-
 
 int main() {
+    auto tensor1 = make_shared<Tensor>(vector<int>{2, 3, 2}, new float[12]{1,1,1,1,1,1,1,1,1,1,1,1});
+    auto tensor2 = make_shared<Tensor>(vector<int>{2,3}, new float[6]{6,5,4,3,2,1});
 
-    float data1[] = {6,5,4,3,2,1};
-    float data2[] = {1,1,1,1,1,1,1,1,1,1,1,1};
-    auto tensor1 = Tensor({2,3,2},data2);
- 
-
-    auto tensor2 = Tensor({2,3},data1);
-
-
-    auto tensor3 = matmul(tensor1,tensor2);
+    Tensor tensor3 = matmul(tensor1, tensor2);
 
     tensor3.printElements(18);
-
+    tensor3.printShape();
 }
