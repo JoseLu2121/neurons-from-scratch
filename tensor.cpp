@@ -23,7 +23,7 @@ public:
 
     Tensor(const vector<int>& str, float* data_param = nullptr,
            const vector<shared_ptr<Tensor>> childs_param = {}) : data(nullptr),
-                                                                total_size(1), shape(str), childs(childs_param) {
+            total_size(1), shape(str), childs(childs_param) {
         for (const auto& ptr : str) total_size *= ptr;
 
         if (total_size == 0) return;
@@ -159,7 +159,46 @@ Tensor batch_matrix_product(shared_ptr<Tensor> b, shared_ptr<Tensor> m) {
     return Tensor(output_shape, output_data.data(), {});
 }
 
+Tensor vector_batch_product(shared_ptr<Tensor> v,shared_ptr<Tensor> b){
+    v->shape.insert(v->shape.begin(),1);
+    v->strides.insert(v->strides.begin(),0);
+
+    int b_batch = b->shape.at(0);
+    int b_col = b->shape.at(2);
+    vector<int> output_shape = {b_batch,b_col};
+
+    vector<float> output_data(product(output_shape));
+
+    for(int i = 0; i < b_batch; i++){
+        auto matrix_batch_i = b->getBatch(i);
+        Tensor matrix_output = vector_matrix_product(v, matrix_batch_i);
+        matrix_output.printShape();
+        float* matrix_data = matrix_output.getData();
+        std::copy(matrix_data, matrix_data + b_col, output_data.begin() + i * b_col);
+    }
+    return Tensor(output_shape, output_data.data(), {});
+ }
+
+ Tensor matrix_batch_product(shared_ptr<Tensor> m, shared_ptr<Tensor> b) {
+    int b_batch = b->getShape().at(0);
+    int m_row = m->getShape().at(0);
+    int b_col = b->getShape().at(2);
+    vector<int> output_shape = {b_batch, m_row, b_col};
+
+    vector<float> output_data(product(output_shape));
+    for (int i = 0; i < b_batch; i++) {
+        auto matrix_batch_i = b->getBatch(i);
+        Tensor matrix_output = matrix_matrix_product(m, matrix_batch_i);
+        float* matrix_data = matrix_output.getData();
+        std::copy(matrix_data, matrix_data + m_row*b_col, output_data.begin() + m_row*b_col* i);
+    }
+    return Tensor(output_shape, output_data.data(), {});
+}
+
+
+
 Tensor matmul(shared_ptr<Tensor> a, shared_ptr<Tensor> b) {
+
     if (a->getDimension() == 1 && b->getDimension() == 1) return dot_scalar_product(a, b);
     if (a->getDimension() == 1 && b->getDimension() == 2) {
         a->shape.insert(a->shape.begin(), 1);
@@ -178,15 +217,24 @@ Tensor matmul(shared_ptr<Tensor> a, shared_ptr<Tensor> b) {
         b->strides.push_back(0);
         return batch_matrix_product(a, b);
     }
+
+    if(a->getDimension() == 1 && b->getDimension() == 3){
+        return vector_batch_product(a,b);
+    }
+    if(a->getDimension()==2 && b->getDimension() == 3){
+        return matrix_batch_product(a,b);
+    }
     throw runtime_error("Dimensiones no soportadas");
 }
 
 int main() {
-    auto tensor1 = make_shared<Tensor>(vector<int>{2, 3, 2}, new float[12]{1,1,1,1,1,1,1,1,1,1,1,1});
+    auto tensor1 = make_shared<Tensor>(vector<int>{4, 3, 2}, new float[24]{1,1,1,1,1,1,1,1,1,1,1,1,
+    1,1,1,1,1,1,1,1,1,1,1,1});
     auto tensor2 = make_shared<Tensor>(vector<int>{2,3}, new float[6]{6,5,4,3,2,1});
-
+    tensor2->printShape();
     Tensor tensor3 = matmul(tensor1, tensor2);
-
-    tensor3.printElements(18);
+ 
+    
+    tensor3.printElements(16);
     tensor3.printShape();
 }
