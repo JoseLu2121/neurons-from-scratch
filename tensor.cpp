@@ -5,6 +5,7 @@
 #include <functional>
 #include <array>
 #include <cassert>
+#include <chrono>
 
 using namespace std;
 
@@ -159,6 +160,33 @@ Tensor batch_matrix_product(shared_ptr<Tensor> b, shared_ptr<Tensor> m) {
     return Tensor(output_shape, output_data.data(), {});
 }
 
+
+Tensor batch_matrix_product2(shared_ptr<Tensor> b, shared_ptr<Tensor> m) {
+    int b_batch = b->getShape().at(0);
+    int m_col = m->getShape().at(1);
+    int b_row = b->getShape().at(1);
+    int b_col = b->getShape().at(2);
+
+    vector<int> output_shape = {b_batch, b_row};
+    if (m_col != 1) output_shape.push_back(m_col);
+
+    vector<float> output_data(product(output_shape));
+    for (int ba = 0; ba < b_batch; ba++) {
+        
+        for (int i = 0; i < b_row; i++) {
+            for (int j = 0; j < m_col; j++) {
+                float sum = 0.0;
+                for (int k = 0; k < b_col; k++)
+                    sum += b->getData()[k + i * b->strides.at(1) + ba * b->getStrides().at(0)]
+                     * m->getData()[j + k * m->strides.at(0)];
+                output_data[i * m_col + j + ba * (b_row*m_col)] = sum;
+            }
+    }
+    }
+    return Tensor(output_shape, output_data.data(), {});
+}
+
+
 Tensor vector_batch_product(shared_ptr<Tensor> v,shared_ptr<Tensor> b){
     v->shape.insert(v->shape.begin(),1);
     v->strides.insert(v->strides.begin(),0);
@@ -235,6 +263,6 @@ int main() {
     Tensor tensor3 = matmul(tensor1, tensor2);
  
     
-    tensor3.printElements(16);
+    tensor3.printElements(37);
     tensor3.printShape();
 }
