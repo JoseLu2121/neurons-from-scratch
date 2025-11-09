@@ -86,6 +86,20 @@ public:
         tensor_view->childs = {shared_from_this()};
         return tensor_view;
     }
+
+    void to3d(){
+        if(this->getDimension() == 3){
+            throw("Tensor is already 3d.");
+        }
+
+        if(this->getDimension() == 1){
+            this->strides.push_back(0);
+            this->shape.push_back(1);
+        }
+
+        this->strides.insert(this->strides.begin(),0);
+        this->shape.insert(this->shape.begin(),1);
+    }
 };
 
 static size_t product(const vector<int>& v) {
@@ -94,13 +108,48 @@ static size_t product(const vector<int>& v) {
     return p;
 }
 
-void broadcasting_inplace(Tensor& small, const Tensor& large) {
-    for (size_t d = 0; d < small.shape.size(); ++d) {
-        if (small.shape[d] == 1 && large.shape[d] != 1) {
-            small.strides[d] = 0;
+void broadcasting(shared_ptr<Tensor> a, shared_ptr<Tensor> b){
+    int a_dim = a->getDimension();
+    int b_dim = b->getDimension();
+    int bigger_dim = a >= b ? a_dim : b_dim;
+
+    for(int i=0; i<bigger_dim; i++){
+        int a_current_dim = a->getShape().at(i);
+        int b_current_dim = b->getShape().at(i);
+
+        if(a_current_dim == 1){
+            
         }
     }
 }
+
+Tensor operator+(shared_ptr<Tensor> a, shared_ptr<Tensor> b){
+
+    int rows = a->getShape().at(1);
+    int cols = a->getShape().at(2);
+    int batches = a->getShape().at(0);
+
+    int batch_stride = a->getStrides().at(0);
+    int row_stride = a->getStrides().at(1);
+
+    vector<float> output_data(product({rows,cols,batches}));
+
+    for(int k=0; k<batches; k++){
+        for(int i=0; i < rows;i++){
+
+            for(int j=0; j < cols; j++){
+                output_data[k*batch_stride + i*row_stride + j] = a->getData()[k*batch_stride + i*row_stride + j] + 
+                b->getData()[k*batch_stride + i*row_stride + j];
+            }
+
+        }
+    }
+
+    return Tensor(a->getShape(), output_data.data());
+
+
+}
+
 
 
 Tensor dot_scalar_product(shared_ptr<Tensor> a, shared_ptr<Tensor> b) {
@@ -256,13 +305,8 @@ Tensor matmul(shared_ptr<Tensor> a, shared_ptr<Tensor> b) {
 }
 
 int main() {
-    auto tensor1 = make_shared<Tensor>(vector<int>{4, 3, 2}, new float[24]{1,1,1,1,1,1,1,1,1,1,1,1,
-    1,1,1,1,1,1,1,1,1,1,1,1});
-    auto tensor2 = make_shared<Tensor>(vector<int>{2,3}, new float[6]{6,5,4,3,2,1});
-    tensor2->printShape();
-    Tensor tensor3 = matmul(tensor1, tensor2);
- 
-    
-    tensor3.printElements(37);
-    tensor3.printShape();
+    auto tensor1 = make_shared<Tensor>(vector<int>{1,2,3}, new float[6]{6,5,4,3,2,1});
+    auto tensor2 = make_shared<Tensor>(vector<int>{1,2,3}, new float[6]{6,5,4,3,2,1});
+    Tensor tensor3 = tensor1 + tensor2;
+    tensor3.printElements(7);
 }
