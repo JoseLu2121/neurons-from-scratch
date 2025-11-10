@@ -112,6 +112,20 @@ public:
         }
     }
 
+    static Tensor zeros(const vector<int>& shape) {
+        size_t size = 1;
+        for (const auto& dim : shape) size *= dim;
+        vector<float> zero_data(size, 0.0f);
+        return Tensor(shape, zero_data.data());
+    }
+
+    static Tensor ones(const vector<int>& shape) {
+        size_t size = 1;
+        for (const auto& dim : shape) size *= dim;
+        vector<float> one_data(size, 1.0f);
+        return Tensor(shape, one_data.data());
+    }
+
 };
 
 static size_t product(const vector<int>& v) {
@@ -369,8 +383,7 @@ int main() {
     
     y.get()->printElements(1);
 
-   
-
-
+    Tensor unos = Tensor::zeros(vector<int>{2,3,3});
+    unos.printElements(18);
 
 }
