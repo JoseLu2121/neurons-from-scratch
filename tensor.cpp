@@ -71,6 +71,15 @@ public:
         cout << ")" << endl;
     }
 
+    void printStrides() {
+        cout << "Strides: ("; 
+        for (size_t i = 0; i < strides.size(); i++) {
+            cout << strides[i];
+            if (i != strides.size() - 1) cout << ", ";
+        }
+        cout << ")" << endl;
+    }
+
     shared_ptr<Tensor> getBatch(int index) {
         assert(getDimension() == 3 && "Tensor must have three dimensions");
         int batch_size = shape.at(0);
@@ -89,7 +98,7 @@ public:
 
     void to3d(){
         if(this->getDimension() == 3){
-            throw("Tensor is already 3d.");
+            
         }
 
         if(this->getDimension() == 1){
@@ -97,9 +106,12 @@ public:
             this->shape.push_back(1);
         }
 
-        this->strides.insert(this->strides.begin(),0);
-        this->shape.insert(this->shape.begin(),1);
+        if(this->getDimension() == 2){
+            this->strides.insert(this->strides.begin(),0);
+            this->shape.insert(this->shape.begin(),1);
+        }
     }
+
 };
 
 static size_t product(const vector<int>& v) {
@@ -109,22 +121,13 @@ static size_t product(const vector<int>& v) {
 }
 
 void broadcasting(shared_ptr<Tensor> a, shared_ptr<Tensor> b){
-    int a_dim = a->getDimension();
-    int b_dim = b->getDimension();
-    int bigger_dim = a >= b ? a_dim : b_dim;
+    a->to3d();
+    b->to3d();
 
-    for(int i=0; i<bigger_dim; i++){
-        int a_current_dim = a->getShape().at(i);
-        int b_current_dim = b->getShape().at(i);
-
-        if(a_current_dim == 1){
-            
-        }
-    }
 }
 
-Tensor operator+(shared_ptr<Tensor> a, shared_ptr<Tensor> b){
-
+shared_ptr<Tensor> operator+(shared_ptr<Tensor> a, shared_ptr<Tensor> b){
+    broadcasting(a,b);
     int rows = a->getShape().at(1);
     int cols = a->getShape().at(2);
     int batches = a->getShape().at(0);
@@ -145,7 +148,7 @@ Tensor operator+(shared_ptr<Tensor> a, shared_ptr<Tensor> b){
         }
     }
 
-    return Tensor(a->getShape(), output_data.data());
+    return make_shared<Tensor> (Tensor(a->getShape(), output_data.data(), {a,b}));
 
 
 }
@@ -157,7 +160,7 @@ Tensor dot_scalar_product(shared_ptr<Tensor> a, shared_ptr<Tensor> b) {
     vector<float> output_data(size_output);
     for (int i = 0; i < size_output; i++)
         output_data[i] = a->getData()[i] * b->getData()[i];
-    return Tensor({size_output}, output_data.data(), {});
+    return Tensor({size_output}, output_data.data(), {a,b});
 }
 
 Tensor vector_matrix_product(shared_ptr<Tensor> v, shared_ptr<Tensor> m) {
@@ -171,7 +174,7 @@ Tensor vector_matrix_product(shared_ptr<Tensor> v, shared_ptr<Tensor> m) {
         }
         output_data[i] = sum;
     }
-    return Tensor({column_m}, output_data.data(), {});
+    return Tensor({column_m}, output_data.data(), {v,m});
 }
 
 Tensor matrix_matrix_product(shared_ptr<Tensor> m, shared_ptr<Tensor> v) {
@@ -184,11 +187,11 @@ Tensor matrix_matrix_product(shared_ptr<Tensor> m, shared_ptr<Tensor> v) {
         for (int j = 0; j < col_v; j++) {
             float sum = 0;
             for (int k = 0; k < col_m; k++)
-                sum += m->getData()[k + i * m->strides.at(0)] * v->getData()[j + k * v->strides.at(0)];
+                sum += m->getData()[k*m->strides.at(1) + i * m->strides.at(0)] * v->getData()[j*v->strides.at(1) + k * v->strides.at(0)];
             output_data[i * col_v + j] = sum;
         }
     }
-    return Tensor(output_shape, output_data.data(), {});
+    return Tensor(output_shape, output_data.data(), {m,v});
 }
 
 Tensor batch_matrix_product(shared_ptr<Tensor> b, shared_ptr<Tensor> m) {
@@ -206,7 +209,7 @@ Tensor batch_matrix_product(shared_ptr<Tensor> b, shared_ptr<Tensor> m) {
         float* matrix_data = matrix_output.getData();
         std::copy(matrix_data, matrix_data + b_row * m_col, output_data.begin() + b_row * m_col * i);
     }
-    return Tensor(output_shape, output_data.data(), {});
+    return Tensor(output_shape, output_data.data(), {b,m});
 }
 
 
@@ -232,7 +235,7 @@ Tensor batch_matrix_product2(shared_ptr<Tensor> b, shared_ptr<Tensor> m) {
             }
     }
     }
-    return Tensor(output_shape, output_data.data(), {});
+    return Tensor(output_shape, output_data.data(), {b,m});
 }
 
 
@@ -253,7 +256,7 @@ Tensor vector_batch_product(shared_ptr<Tensor> v,shared_ptr<Tensor> b){
         float* matrix_data = matrix_output.getData();
         std::copy(matrix_data, matrix_data + b_col, output_data.begin() + i * b_col);
     }
-    return Tensor(output_shape, output_data.data(), {});
+    return Tensor(output_shape, output_data.data(), {v,b});
  }
 
  Tensor matrix_batch_product(shared_ptr<Tensor> m, shared_ptr<Tensor> b) {
@@ -269,44 +272,105 @@ Tensor vector_batch_product(shared_ptr<Tensor> v,shared_ptr<Tensor> b){
         float* matrix_data = matrix_output.getData();
         std::copy(matrix_data, matrix_data + m_row*b_col, output_data.begin() + m_row*b_col* i);
     }
-    return Tensor(output_shape, output_data.data(), {});
+    return Tensor(output_shape, output_data.data(), {m,b});
 }
 
 
 
-Tensor matmul(shared_ptr<Tensor> a, shared_ptr<Tensor> b) {
+shared_ptr<Tensor> matmul(shared_ptr<Tensor> a, shared_ptr<Tensor> b) {
 
-    if (a->getDimension() == 1 && b->getDimension() == 1) return dot_scalar_product(a, b);
+    if (a->getDimension() == 1 && b->getDimension() == 1) return make_shared<Tensor> (dot_scalar_product(a, b));
     if (a->getDimension() == 1 && b->getDimension() == 2) {
         a->shape.insert(a->shape.begin(), 1);
         a->strides.insert(a->strides.begin(), 0);
-        return vector_matrix_product(a, b);
+        return make_shared<Tensor> (vector_matrix_product(a, b));
     }
     if (a->getDimension() == 2 && b->getDimension() == 1) {
         b->shape.push_back(1);
         b->strides.push_back(0);
-        return matrix_matrix_product(a, b);
+        return make_shared<Tensor> (matrix_matrix_product(a, b));
     }
-    if (a->getDimension() == 2 && b->getDimension() == 2) return matrix_matrix_product(a, b);
-    if (a->getDimension() == 3 && b->getDimension() == 2) return batch_matrix_product(a, b);
+    if (a->getDimension() == 2 && b->getDimension() == 2) return make_shared<Tensor> (matrix_matrix_product(a, b));
+    if (a->getDimension() == 3 && b->getDimension() == 2) return make_shared<Tensor> (batch_matrix_product(a, b));
     if (a->getDimension() == 3 && b->getDimension() == 1) {
         b->shape.push_back(1);
         b->strides.push_back(0);
-        return batch_matrix_product(a, b);
+        return make_shared<Tensor> (batch_matrix_product(a, b));
     }
 
     if(a->getDimension() == 1 && b->getDimension() == 3){
-        return vector_batch_product(a,b);
+        return make_shared<Tensor> (vector_batch_product(a,b));
     }
     if(a->getDimension()==2 && b->getDimension() == 3){
-        return matrix_batch_product(a,b);
+        return make_shared<Tensor>(matrix_batch_product(a,b));
     }
     throw runtime_error("Dimensiones no soportadas");
 }
 
+float relu_function(float x){
+    if(x<0){   
+        x=0;
+    }
+
+    return x;
+}
+
+shared_ptr<Tensor> relu(shared_ptr<Tensor> a){
+    vector<float> output_data(product(a->getShape()));
+
+    for(size_t i=0; i< a->getSize();i++){
+        output_data[i] = relu_function(a->getData()[i]);
+    }
+
+    return make_shared<Tensor> (Tensor(a->getShape(),output_data.data(),{a}));
+
+}
+
+shared_ptr<Tensor> transpose_view(shared_ptr<Tensor> a) {
+    if (a->getDimension() != 2) {
+        throw std::runtime_error("transpose_view: solo 2D");
+    }
+
+    auto result = make_shared<Tensor>(*a);
+    std::swap(result->shape[0], result->shape[1]);
+    std::swap(result->strides[0], result->strides[1]);
+    return result;
+}
+
 int main() {
-    auto tensor1 = make_shared<Tensor>(vector<int>{1,2,3}, new float[6]{6,5,4,3,2,1});
-    auto tensor2 = make_shared<Tensor>(vector<int>{1,2,3}, new float[6]{6,5,4,3,2,1});
-    Tensor tensor3 = tensor1 + tensor2;
-    tensor3.printElements(7);
+    auto input = make_shared<Tensor>(vector<int>{1,3}, new float[3]{1,2,3});
+    auto w1 = make_shared<Tensor>(vector<int>{3,3}, new float[9]{0.1,0.2,0.3,0.4,0.5,
+        0.6,0.7,0.8,0.9});
+
+    
+    
+    auto b1 = make_shared<Tensor>(vector<int> (1,3), new float[3]{0.1,0.2,0.3});
+
+    
+    auto w2 = make_shared<Tensor>(vector<int>{2,3}, new float[6]{0.2,0.3,0.4,0.5,
+        0.6,0.7});
+
+    auto b2 = make_shared<Tensor>(vector<int> (1,2), new float[3]{0.1,0.2});
+
+    auto w3 = make_shared<Tensor>(vector<int>{1,2}, new float[2]{0.3,0.4});
+
+    auto b3 = make_shared<Tensor>(vector<int> (1,1), new float[1]{0.1});
+    auto w1_T = transpose_view(w1);
+    auto w2_T = transpose_view(w2);
+    auto w3_T = transpose_view(w3);
+
+    auto z1 = matmul(input, w1_T) + b1;
+    z1.get()->printElements(4);
+    auto h1 = relu(z1);
+    auto z2 = matmul(h1, w2_T) + b2;
+    auto h2 = relu(z2);
+    auto z3 = matmul(h2, w3_T) + b3;
+    auto y  = relu(z3);
+    
+    y.get()->printElements(1);
+
+   
+
+
+
 }
