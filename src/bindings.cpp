@@ -11,7 +11,7 @@
 
 namespace py = pybind11;
 
-PYBIND11_MODULE(learntorch, m) {
+PYBIND11_MODULE(_learntorch, m) {
     m.doc() = "Binding de Learntorch C++";
 
     // --- TENSOR ---

@@ -1,11 +1,10 @@
-from setuptools import setup, Extension
+from setuptools import setup, Extension, find_packages
 import pybind11
-# python3 setup.py build_ext --inplace 
-# Lista de todos tus archivos .cpp fuente
+
 cpp_files = [
     "src/bindings.cpp",
     "src/tensor.cpp",
-    "src/utils.cpp", 
+    "src/utils.cpp",
     "src/unit.cpp",
     "src/loss.cpp",
     "src/ops.cpp",
@@ -16,12 +15,11 @@ cpp_files = [
     "src/CPUBackend.cpp",
     "src/CPUBackendOptimized.cpp",
     "src/GEMMOptimizedBackend.cpp",
-    # EXCEPTO main.cpp (no queremos un ejecutable, sino una librería)
 ]
 
 ext_modules = [
     Extension(
-        "learntorch", # Nombre del paquete en Python
+        "_learntorch",
         sorted(cpp_files),
         include_dirs=[
             pybind11.get_include(),
@@ -35,5 +33,7 @@ ext_modules = [
 setup(
     name="learntorch",
     version="0.1",
+    packages=find_packages(),
+    package_data={"learntorch": ["py.typed", "*.pyi"]},
     ext_modules=ext_modules,
 )
