@@ -3,7 +3,8 @@
 
 enum class BackendType {
     CPU,
-    CPU_OPTIMIZED
+    CPU_OPTIMIZED,
+    GEMM_OPTIMIZED
 };
 
 class Device {
@@ -17,11 +18,13 @@ public:
         BackendType type = get_current_type();
 
         if (type == BackendType::CPU_OPTIMIZED) {
-            static CPUBackendOptimized opt_backend; 
+            static CPUBackendOptimized opt_backend;
             return &opt_backend;
+        } else if (type == BackendType::GEMM_OPTIMIZED) {
+            static GEMMOptimizedBackend gemm_backend;
+            return &gemm_backend;
         } else {
-
-            static CPUBackend normal_backend; 
+            static CPUBackend normal_backend;
             return &normal_backend;
         }
         

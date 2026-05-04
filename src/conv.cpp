@@ -324,13 +324,13 @@ Image apply_kernel_with_ops(const Image& input, const std::vector<float>& kernel
 
     auto y = conv2d(x, w,stride, padding);
 
-    if (y->getDimension() != 4 || y->shape[0] != 1 || y->shape[1] != 1) {
+    if (y->getDimension() != 4 || y->getShape()[0] != 1 || y->getShape()[1] != 1) {
         throw std::runtime_error("Unexpected output shape from ops::conv2d");
     }
 
     Image out;
-    out.height = y->shape[2];
-    out.width = y->shape[3];
+    out.height = y->getShape()[2];
+    out.width = y->getShape()[3];
     out.pixels.assign(y->getData(), y->getData() + y->getSize());
     return out;
 }

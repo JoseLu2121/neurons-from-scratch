@@ -3,3 +3,15 @@
 mi_ia
 test_ia
 test*
+*gato*
+model_weights
+conv.cpp
+transformer.cpp
+inference.cpp
+/.venv
+/build
+*.txt
+*.so
+*_weights
+.vscode/*
+PKG-*

@@ -1,6 +1,8 @@
 #include "backend.h"
 #include "types.h"
 #include <cmath>
+#include <cstring>
+#include <immintrin.h>
 #include <iostream>
 #include <memory>
 #include <vector>
@@ -26,7 +28,7 @@ inline int getIndex(int index, const TensorInfo& tensor){
 }
 
 // A basic binary operation of two tensors
-void CPUBackend::binary(const TensorInfo& a, const TensorInfo& b, TensorInfo& out, BinaryOp op){
+void GEMMOptimizedBackend::binary(const TensorInfo& a, const TensorInfo& b, TensorInfo& out, BinaryOp op){
 
     size_t out_size = out.size;
     
@@ -62,7 +64,7 @@ void CPUBackend::binary(const TensorInfo& a, const TensorInfo& b, TensorInfo& ou
 };
 
 // A basic unary operation of a tensor
-void CPUBackend::unary(const TensorInfo& a, TensorInfo& out, UnaryOp op){
+void GEMMOptimizedBackend::unary(const TensorInfo& a, TensorInfo& out, UnaryOp op){
     
     for(size_t i = 0; i < out.size; i++){
 
@@ -87,42 +89,182 @@ void CPUBackend::unary(const TensorInfo& a, TensorInfo& out, UnaryOp op){
     }
 }
 
-void CPUBackend::gemm(const TensorInfo& a, const TensorInfo& b, TensorInfo& out) {
+
+
+
+// This implementation is fully based on GOTO paper 
+// ("Anatomy of High-Performance Matrix Multiplication") fig 10.
+// is done on a AMD with AVX2 and cache size of
+// L1 = 32KiB 
+// l2 = 512KiB (512 * 1024) = 524.288 bytes
+// l3 = 16MiB
+// because LearnTorch is row-major, we will implement GEPP + GEPB
+
+// B must occupy half of l2 -> 256 * 256 * 4 = 262.144
+const int KC = 256;
+const int NC = 256;
+
+// A
+const int MC = 1024;
+
+// for avx2 registers (256 bits -> 8 floats)
+const int MR = 4;
+const int NR = 16;
+
+// used to pack an B block
+void pack_block(float* target,const float* source, int current_k, int current_n, int stride_b) {
+    int idx = 0;
+    for(int k = 0; k < current_k; k++) {
+        for (int j = 0; j < current_n; j++) {
+            target[idx++] = source[k * stride_b + j];
+        }
+    }
+};
+
+// micro kernel for gemm
+static void micro_kernel_avx2(const float* A, const float* B, float* C,
+                               int k, int mr, int nr, int stride_b, int stride_out) {
+
+    // in case mr and nr are smaller than the specified block size
+    if (mr < MR || nr < NR) {
+        for (int i = 0; i < mr; i++)
+            for (int j = 0; j < nr; j++) {
+                float sum = 0.0f;
+                for (int p = 0; p < k; p++)
+                    sum += A[i * k + p] * B[p * stride_b + j];
+                C[i * stride_out + j] += sum;
+            }
+        return;
+    }
+
+    // _m256 references a YMM 256 bits register (8 floats)
+    // we got a block of 4x16 floats, so we initiate 8 accumulators
+    __m256 c00 = _mm256_setzero_ps(), c01 = _mm256_setzero_ps();
+    __m256 c10 = _mm256_setzero_ps(), c11 = _mm256_setzero_ps();
+    __m256 c20 = _mm256_setzero_ps(), c21 = _mm256_setzero_ps();
+    __m256 c30 = _mm256_setzero_ps(), c31 = _mm256_setzero_ps();
+
+    for (int p = 0; p < k; p++) {
+        // load a B row (16 floats) in two registers
+        __m256 b0 = _mm256_loadu_ps(B + p * stride_b);
+        __m256 b1 = _mm256_loadu_ps(B + p * stride_b + 8);
+
+        // replicate a single float in all the register
+        __m256 a0 = _mm256_broadcast_ss(A + 0 * k + p);
+        // we do the add and set it to the c tile accumulator
+        c00 = _mm256_fmadd_ps(a0, b0, c00);
+        c01 = _mm256_fmadd_ps(a0, b1, c01);
+
+        // same process
+        __m256 a1 = _mm256_broadcast_ss(A + 1 * k + p);
+        c10 = _mm256_fmadd_ps(a1, b0, c10);
+        c11 = _mm256_fmadd_ps(a1, b1, c11);
+
+        __m256 a2 = _mm256_broadcast_ss(A + 2 * k + p);
+        c20 = _mm256_fmadd_ps(a2, b0, c20);
+        c21 = _mm256_fmadd_ps(a2, b1, c21);
+
+        __m256 a3 = _mm256_broadcast_ss(A + 3 * k + p);
+        c30 = _mm256_fmadd_ps(a3, b0, c30);
+        c31 = _mm256_fmadd_ps(a3, b1, c31);
+    }
+
+    // loads the current C mem in YMM register, then we add the 
+    // accumulators and write them back to mem
+    _mm256_storeu_ps(C + 0*stride_out,     _mm256_add_ps(_mm256_loadu_ps(C + 0*stride_out),     c00));
+    _mm256_storeu_ps(C + 0*stride_out + 8, _mm256_add_ps(_mm256_loadu_ps(C + 0*stride_out + 8), c01));
+    _mm256_storeu_ps(C + 1*stride_out,     _mm256_add_ps(_mm256_loadu_ps(C + 1*stride_out),     c10));
+    _mm256_storeu_ps(C + 1*stride_out + 8, _mm256_add_ps(_mm256_loadu_ps(C + 1*stride_out + 8), c11));
+    _mm256_storeu_ps(C + 2*stride_out,     _mm256_add_ps(_mm256_loadu_ps(C + 2*stride_out),     c20));
+    _mm256_storeu_ps(C + 2*stride_out + 8, _mm256_add_ps(_mm256_loadu_ps(C + 2*stride_out + 8), c21));
+    _mm256_storeu_ps(C + 3*stride_out,     _mm256_add_ps(_mm256_loadu_ps(C + 3*stride_out),     c30));
+    _mm256_storeu_ps(C + 3*stride_out + 8, _mm256_add_ps(_mm256_loadu_ps(C + 3*stride_out + 8), c31));
+}
+
+void gepm(float* packed_B, const float* packed_A,
+          int current_k, int current_n, int M, 
+          float* out_panel_start, const float* b_block_start, 
+          int stride_b, int stride_out) {
+          
+    pack_block(packed_B, b_block_start, current_k, current_n, stride_b);
+
+    for (int i = 0; i < M; i += MR) {
+        int current_m = std::min(MR, M - i); // last iteration
+        // A packed is just an array with k_current columns
+        const float* a_micro_start = packed_A + (i * current_k);
+
+        for (int j = 0; j < current_n; j += NR) {
+            int current_nr = std::min(NR, current_n - j); // last iteration
+            
+            // inside C n panel, we extract an NR block of a row
+            float* out_micro_start = out_panel_start + (i * stride_out) + j;
+            // we set the exact start of the NR block
+            const float* b_micro_start = packed_B + j; 
+
+            micro_kernel_avx2(
+                a_micro_start, 
+                b_micro_start, 
+                out_micro_start, 
+                current_k, current_m, current_nr, current_n, stride_out
+            );
+        }
+    }
+}
+
+// used to pack an A panel of MC,KC dimensions into a contiguous memory
+void pack_panel(float* target,const float* source, int current_k, int m, int stride_a) {
+    int idx = 0;
+    for(int i = 0; i < m; i++) {
+        for (int k = 0; k < current_k; k++) {
+            target[idx++] = source[i * stride_a + k];
+        }
+    }
+};
+
+void GEMMOptimizedBackend::gemm(const TensorInfo& a, const TensorInfo& b, TensorInfo& out) {
     auto n_batch = out.shape[0];
     auto M = out.shape[1];
     auto N = out.shape[2];
     auto K = a.shape[2];
+    float* packed_B = (float*) std::aligned_alloc(64, KC * NC * sizeof(float));
+    float* packed_A = (float*) std::aligned_alloc(64, M * KC * sizeof(float));
+
     // We iterate per batch 
     for(int b_idx = 0; b_idx < n_batch; b_idx++){
         const float* batch_a = a.data + b_idx * a.strides[0];
         const float* batch_b = b.data + b_idx * b.strides[0];
         float* batch_out = out.data + b_idx * out.strides[0];
+        std::memset(batch_out, 0, M * N * sizeof(float));
 
-        for(int m = 0; m < M; m++){
-            for(int n = 0; n < N; n++){
-                float sum = 0.0f;
-                const float* row_a = batch_a + m * a.strides[1];
-                const float* col_b = batch_b + n * b.strides[2];
+        // first loop por GEPP, we slice by K
+        for(int k = 0; k < K; k += KC){
+            int current_k = std::min(KC, K - k); // if the last iteration has less k
+            const float* a_panel_start = batch_a + k;
+            // pack A step
+            pack_panel(packed_A, a_panel_start, current_k, M, a.strides[1]); 
+            // GEPP inside loop
+            for(int n = 0; n < N; n += NC){
+                int current_n = std::min(NC, N - n);
+                const float* b_block_start = batch_b + (k * b.strides[1]) + n;
+                float* out_panel_start = batch_out + n;
 
-                for(int k = 0; k<K; k++){
-                    float val_a = row_a[k * a.strides[2]];
-                    float val_b = col_b[k * b.strides[1]];
-                    sum += val_a * val_b;
-                }
-                batch_out[m * out.strides[1] + n * out.strides[2]] = sum;
-            }
-
+                gepm(packed_B, packed_A, current_k, current_n, M,
+                     out_panel_start, b_block_start, b.strides[1], out.strides[1]);
+            };
         }
     }
+
+    std::free(packed_A);
+    std::free(packed_B);
 }
 
-float* CPUBackend::alloc(size_t size) { return new float[size]; }
-void CPUBackend::free(float* ptr) { delete[] ptr; }
-void CPUBackend::set(float* ptr, float value, size_t size) { 
+float* GEMMOptimizedBackend::alloc(size_t size) { return new float[size]; }
+void GEMMOptimizedBackend::free(float* ptr) { delete[] ptr; }
+void GEMMOptimizedBackend::set(float* ptr, float value, size_t size) { 
    for(size_t i=0; i<size; i++) ptr[i] = value;
 }
 
-void CPUBackend::reduce(const TensorInfo& in, TensorInfo& out, int dim, ReduceOp op) {
+void GEMMOptimizedBackend::reduce(const TensorInfo& in, TensorInfo& out, int dim, ReduceOp op) {
  
     size_t out_size = out.size;
     int reduction_size = in.shape[dim]; // number of elements to reduce
@@ -182,7 +324,7 @@ void CPUBackend::reduce(const TensorInfo& in, TensorInfo& out, int dim, ReduceOp
 }
 
 // Unbroadcast function to accumulate gradients correctly
-void CPUBackend::accumulate_grad(shared_ptr<Tensor> param, shared_ptr<Tensor> incoming_grad) {
+void GEMMOptimizedBackend::accumulate_grad(shared_ptr<Tensor> param, shared_ptr<Tensor> incoming_grad) {
 
     float* p_data = param->getGrad()->getData(); // Buffer to accumulate gradients
     float* g_data = incoming_grad->getData();  // Incoming gradient data that needs to be unbroadcasted
@@ -224,7 +366,7 @@ void CPUBackend::accumulate_grad(shared_ptr<Tensor> param, shared_ptr<Tensor> in
 }
 
 // Acts like a look up table
-void CPUBackend::gather(const TensorInfo& w, const TensorInfo& indexes, TensorInfo& out) {
+void GEMMOptimizedBackend::gather(const TensorInfo& w, const TensorInfo& indexes, TensorInfo& out) {
     int embed_dim = w.shape[w.dim - 1];
     int vocab_size = w.shape[0];
 
@@ -246,7 +388,7 @@ void CPUBackend::gather(const TensorInfo& w, const TensorInfo& indexes, TensorIn
     }
 }
 
-void CPUBackend::scatter_add(const TensorInfo& indexes, const TensorInfo& incoming_grad, const TensorInfo& w_grad) {
+void GEMMOptimizedBackend::scatter_add(const TensorInfo& indexes, const TensorInfo& incoming_grad, const TensorInfo& w_grad) {
     int embed_dim = w_grad.shape[w_grad.dim - 1];
     int vocab_size = w_grad.shape[0];
 
@@ -268,7 +410,7 @@ void CPUBackend::scatter_add(const TensorInfo& indexes, const TensorInfo& incomi
     }
 }
 
-void convolution_kernel(
+static void convolution_kernel(
     const TensorInfo& input,
     const TensorInfo& w,
     const TensorInfo& b,

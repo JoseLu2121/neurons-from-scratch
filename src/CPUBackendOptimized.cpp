@@ -373,12 +373,12 @@ void CPUBackendOptimized::reduce(const TensorInfo& in, TensorInfo& out, int dim,
 // Unbroadcast function to accumulate gradients correctly
 void CPUBackendOptimized::accumulate_grad(shared_ptr<Tensor> param, shared_ptr<Tensor> incoming_grad) {
 
-    float* p_data = param->grad->getData(); // Buffer to accumulate gradients
-    float* g_data = incoming_grad->getData(); // Incoming gradient data that needs to be unbroadcasted
+    float* p_data = param->getGrad()->getData(); // Buffer to accumulate gradients
+    float* g_data = incoming_grad->getData();  // Incoming gradient data that needs to be unbroadcasted
 
-    const auto& p_shape = param->shape;
-    const auto& p_strides = param->strides;
-    const auto& g_shape = incoming_grad->shape;
+    const auto& p_shape = param->getShape(); 
+    const auto& p_strides = param->getStrides(); 
+    const auto& g_shape = incoming_grad->getShape(); 
    
     int g_dims = g_shape.size();
     int p_dims = p_shape.size();

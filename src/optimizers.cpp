@@ -9,14 +9,13 @@ Optimizer::Optimizer(const std::vector<std::shared_ptr<Tensor>>& params)
 // Zero Grad
 void Optimizer::zero_grad() {
     for(auto& param : parameters){
-        if(param->grad){
-            std::fill(param->grad->getData(), 
-                      param->grad->getData() + param->grad->getSize(), 
+        if(param->getGrad()){
+            std::fill(param->getGrad()->getData(), 
+                      param->getGrad()->getData() + param->getGrad()->getSize(), 
                       0.0f);
         }
     }
 }
-
 
 SGD::SGD(const std::vector<std::shared_ptr<Tensor>>& params, float learning_rate)
     : Optimizer(params), lr(learning_rate) {}
@@ -24,9 +23,9 @@ SGD::SGD(const std::vector<std::shared_ptr<Tensor>>& params, float learning_rate
 // Step function: update parameters using gradients
 void SGD::step() {
     for (auto& param : parameters) {
-        if (param->grad) {
+        if (param->getGrad()) {
             float* param_data = param->getData();
-            float* grad_data = param->grad->getData();
+            float* grad_data = param->getGrad()->getData();
             size_t size = param->getSize();
 
             for (size_t i = 0; i < size; ++i) {
@@ -59,9 +58,9 @@ void Adam::step() {
     for (size_t p_id = 0; p_id < parameters.size(); p_id++) {
         auto& param = parameters[p_id];
 
-        if (param->grad) {
+        if (param->getGrad()) {
             float* param_data = param->getData();
-            float* grad_data = param->grad->getData();
+            float* grad_data = param->getGrad()->getData();
             size_t size = param->getSize();
             // initialize current param momentum to zero
             if(m_history[p_id].empty()) {

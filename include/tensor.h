@@ -8,122 +8,155 @@
 #include <random>
 #include "types.h"
 
-// Tensor Class 
-struct Tensor : std::enable_shared_from_this<Tensor> {
+// tensor class 
+class Tensor : public std::enable_shared_from_this<Tensor> {
 private:
-    // Data storage 
+    // data storage 
     std::shared_ptr<float[]> data;
-    // Number of elementes of the tensor
+    // number of elements of the tensor
     size_t total_size;
-
-public:
-    // Shape of the tensor (batch,row,col)
+    // shape of the tensor (batch,row,col)
     std::vector<int> shape;
-    // Strides for each dimension
+    // strides for each dimension
     std::vector<int> strides;
-    // Parent nodes of the tensor in the computation graph
+    
+    // parent nodes of the tensor in the computation graph
     std::vector<std::shared_ptr<Tensor>> parents;
-    
-    // Gradient tensor
+    // gradient tensor
     std::shared_ptr<Tensor> grad;
-    // Backward function
+    // backward function
     std::function<void()> _backward;
-    void backward();
 
-    // Constructor
+    // constructor
     Tensor(const std::vector<int>& shape_param, const std::vector<float>& data_param = {},
-           const std::vector<std::shared_ptr<Tensor>> parents_param = {});
+           const std::vector<std::shared_ptr<Tensor>>& parents_param = {});
     
-    // Copy constructor
+    // copy constructor
     Tensor(const Tensor& other);
 
-    // Prints the first n elements of the tensor
-    void printElements(int count = 1) const;
+public:
+    // creates a tensor safely managed by a shared_ptr
+    static std::shared_ptr<Tensor> create(const std::vector<int>& shape_param, 
+                                          const std::vector<float>& data_param = {},
+                                          const std::vector<std::shared_ptr<Tensor>>& parents_param = {});
 
-    // Prints the shape of the tensor
-    void printShape() const;
-
-    //Prints the strides of the tensor
-    void printStrides() const;
-
-    // Prints all the info of the tensor with a max number of data elements
-    void info(int max_size = 20) const;
+    // all elements are 0
+    static std::shared_ptr<Tensor> zeros(const std::vector<int>& shape);
     
-    // Get the size of the tensor
+    // all elements are 1
+    static std::shared_ptr<Tensor> ones(const std::vector<int>& shape);
+    
+    // elements are random values between min_val and max_val
+    static std::shared_ptr<Tensor> random(const std::vector<int>& shape, float min_val = -1.0f, float max_val = 1.0f);
+
+    // get the size of the tensor
     size_t getSize() const { return total_size; }
-
-    // Get the vector of strides of the tensor
-    std::vector<int> getStrides() const { return strides; }
-
-    // Get the pointer to the data of the tensor
-    float* getData() const { return data.get();}
-
-    // Get the vector of the shape of the tensor
-    std::vector<int> getShape() const { return shape; }
-
-    // Get the parents of the tensor
-    std::vector<std::shared_ptr<Tensor>> getParents() const { return parents; }
+    
+    // get the dimension of the tensor
     int getDimension() const { return shape.size(); }
     
-    // Reshape a tensor
-    void reshape(const std::vector<int>& shape);
+    // get the pointer to the data of the tensor
+    float* getData() const { return data.get(); }
+    
+    // get the gradient tensor
+    std::shared_ptr<Tensor> getGrad() const { return grad; }
+    
+    // get the vector of strides of the tensor
+    const std::vector<int>& getStrides() const { return strides; }
+    
+    // get the vector of the shape of the tensor
+    const std::vector<int>& getShape() const { return shape; }
+    
+    // get the parents of the tensor
+    const std::vector<std::shared_ptr<Tensor>>& getParents() const { return parents; }
 
-    // Construct a batch view
+    void set_backward(std::function<void()> bw) { _backward = bw; }
+    
+    void set_parents(const std::vector<std::shared_ptr<Tensor>>& p) { parents = p; }
+
+    void set_shape(const std::vector<int>& s) { shape = s; }
+
+    void set_strides(const std::vector<int>& s) { strides = s; }
+
+    void init_grad() { if (!grad) grad = Tensor::zeros(shape); }
+
+    // compute backpropagation
+    void backward();
+
+    // prints the first n elements of the tensor
+    void printElements(int count = 1) const;
+
+    // prints the shape of the tensor
+    void printShape() const;
+
+    // prints the strides of the tensor
+    void printStrides() const;
+
+    // prints all the info of the tensor with a max number of data elements
+    void info(int max_size = 20) const;
+    
+    // reshape a tensor
+    std::shared_ptr<Tensor> reshape(const std::vector<int>& new_shape);
+
+    // construct a batch view
     std::shared_ptr<Tensor> batch_view(int index, bool keep_dim);
 
-    // Build a 3D view of a tensor
+    // slice a tensor by a start and end index
+    std::shared_ptr<Tensor> slice(int start_idx, int end_idx);
+
+    // build a 3d view of a tensor
     std::shared_ptr<Tensor> view_to_3d(); 
 
-    // Build a view for gemm
+    // build a view for gemm
     std::shared_ptr<Tensor> view_to_gemm(bool as_b_term);
     
-    // Creates a broadcasted view to match target_shape
+    // creates a broadcasted view to match target_shape
     std::shared_ptr<Tensor> broadcast_to(const std::vector<int>& target_shape);
     
-    // Calculates the resulting shape from broadcasting two shapes
+    // calculates the resulting shape from broadcasting two shapes
     static std::vector<int> broadcast_shapes(const std::vector<int>& shape_a, const std::vector<int>& shape_b);
 
-    // Build an optimized version of the tensor
+    // build an optimized version of the tensor
     TensorInfo getInfo();
 
-    // Compute a binary operation
+    // compute a binary operation
     std::shared_ptr<Tensor> compute_binary_op(std::shared_ptr<Tensor> b, BinaryOp op);
 
-    // Compute a unary operation
+    // compute a unary operation
     std::shared_ptr<Tensor> compute_unary_op(UnaryOp op);
 
-    // Compute matmul
+    // compute matmul
     std::shared_ptr<Tensor> compute_matmul(std::shared_ptr<Tensor> b);
 
-    // Compute a reduce operation
+    // compute a reduce operation
     std::shared_ptr<Tensor> compute_reduce_op(int dim, ReduceOp op);
 
-    // Compute a flatten operation
+    // compute a flatten operation
     std::shared_ptr<Tensor> compute_flatten();
-
-    // Static methods to create special tensors
-    static std::shared_ptr<Tensor> zeros(const std::vector<int>& shape); // All elements are 0
-
-    static std::shared_ptr<Tensor> ones(const std::vector<int>& shape); // All elements are 1
-
-    // Elements are random values between min_val and max_val
-    static std::shared_ptr<Tensor> random(const std::vector<int>& shape, float min_val = -1.0f, float max_val = 1.0f);
     
+    // compute a gather operation
+    std::shared_ptr<Tensor> compute_gather(std::shared_ptr<Tensor> ind);
+    
+    // compute a scatter add operation
+    void compute_scatter_add(std::shared_ptr<Tensor> ind, std::shared_ptr<Tensor> incoming_grad);
+    
+    // compute conv2d
+    std::shared_ptr<Tensor> compute_conv2d(std::shared_ptr<Tensor> w, int stride, int padding);
 
+    // build topological sort of the graph
     void build_topo(std::shared_ptr<Tensor> v,
                 std::vector<std::shared_ptr<Tensor>>& topo,
                 std::unordered_set<Tensor*>& visited);
 
+    // serialize tensor
     void serialize(std::ofstream& out) const;
 
+    // deserialize tensor
     void deserialize(std::ifstream& in);
 
-    std::shared_ptr<Tensor> compute_gather(std::shared_ptr<Tensor> ind);
-    void compute_scatter_add(std::shared_ptr<Tensor> ind, std::shared_ptr<Tensor> incoming_grad);
-    
-    std::shared_ptr<Tensor> compute_conv2d(std::shared_ptr<Tensor>  w, int stride, int padding);
-
+    // im2col operation
     void im2col(float* workspace, int out_height, int out_width, int kernel_height, int kernel_width, int stride, int padding);
 
-    void col2im (const float* data_col, int out_height, int out_width, int kernel_height, int kernel_width, int stride, int padding);
+    // col2im operation
+    void col2im(const float* data_col, int out_height, int out_width, int kernel_height, int kernel_width, int stride, int padding);
 };

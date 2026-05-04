@@ -1,20 +1,33 @@
 #pragma once
-#include "tensor.h"
+#include <iostream>
+#include <vector>
+#include <memory>
+#include <sstream>
+#include <functional>
+#include <unordered_set>
+#include <algorithm>
+#include <random>
+#include <cmath>
+#include "unit.h"
+#include "ops.h"
 
-// function that has a tensor as input and returns a tensor
-using Activation = std::function<std::shared_ptr<Tensor>(std::shared_ptr<Tensor>)>;
+enum class ActivationFunction {
+    ReLu,
+    Tanh
+};
 
+// Single neuron class
 struct Neuron : std::enable_shared_from_this<Neuron> {
-
     public:
-        int input_size;
+    std::vector<std::shared_ptr<Unit>> weights; // weights of the neuron
+    std::shared_ptr<Unit> bias;            // bias of the neuron
 
-        std::shared_ptr<Tensor> weights;
-        std::shared_ptr<Tensor> bias;
-        std::shared_ptr<Tensor> output;
-        Activation activation_function;
-    
-    Neuron(int input_size, Activation activation_function = nullptr);
-    
-    std::shared_ptr<Tensor> forward(const std::shared_ptr<Tensor>& input);
+    // Constructor
+    Neuron(int inputs);
+
+    // Forward function to compute the weights with the inputs
+    std::shared_ptr<Unit> forward(std::vector<std::shared_ptr<Unit>>& inputs);
+
+    // Return all the trainable parameters of the neuron
+    std::vector<std::shared_ptr<Unit>> parameters();
 };

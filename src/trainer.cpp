@@ -12,35 +12,56 @@ Trainer::Trainer(std::shared_ptr<Block> m,
 // Fit Method: Train the model
 void Trainer::fit(std::shared_ptr<Tensor> x_train, 
                   std::shared_ptr<Tensor> y_train, 
-                  int epochs, 
+                  int epochs,
+                  int batch_size,
                   int print_every) {
 
     std::cout << "--- Starting training (" << epochs << " epochs) ---" << std::endl;
+    
+    int total_samples = x_train->getShape()[0];
+    int num_batches = (total_samples + batch_size - 1) / batch_size;
 
     for (int epoch = 0; epoch < epochs; epoch++) {
         
-        // 1. Zero Grad everything
-        optimizer->zero_grad();
+        float epoch_loss = 0.0f;
+        float epoch_acc = 0.0f;
 
-        // 2. Forward
-        auto outputs = model->forward({x_train});
-        auto prediction = outputs[0];
+        for ( int b = 0; b < num_batches; b++){
 
-        // 3. Loss
-        auto loss = criterion->forward(prediction, y_train);
+            int start_idx = b * batch_size;
+            int end_idx = std::min(start_idx + batch_size, total_samples);
 
-        auto accuracy = calculate_accuracy(prediction,y_train);
+            auto x_batch = x_train->slice(start_idx, end_idx);
+            auto y_batch = y_train->slice(start_idx, end_idx);
 
-        // 4. Backward
-        loss->backward();
+            // 1. Zero Grad everything
+            optimizer->zero_grad();
 
-        // 5. Update
-        optimizer->step();
+            // 2. Forward
+            auto outputs = model->forward({x_batch});
+            auto prediction = outputs[0];
+
+            // 3. Loss
+            auto loss = criterion->forward(prediction, y_batch);
+
+            auto accuracy = calculate_accuracy(prediction,y_batch);
+
+            // 4. Backward
+            loss->backward();
+
+            // 5. Update
+            optimizer->step();
+
+            epoch_loss += loss->getData()[0];
+            epoch_acc += accuracy;
+        }
 
         // 6. Logging
         if (epoch % print_every == 0 || epoch == epochs - 1) {
-            std::cout << "Epoch " << epoch << " | Loss: " << loss->getData()[0] << " | Accuracy:" <<  accuracy << std::endl;
+            std::cout << "Epoch " << epoch << " | Loss: " << epoch_loss / num_batches << " | Accuracy:" <<  epoch_acc / num_batches << std::endl;
         }
+
+
     }
     
     std::cout << "--- Training finalised---" << std::endl;

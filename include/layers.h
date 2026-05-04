@@ -2,6 +2,24 @@
 #include "block.h"
 #include "ops.h"       
 #include <stdexcept> 
+#include "neuron.h"
+
+// A layer of neurons class
+struct Layer : std::enable_shared_from_this<Layer> {
+    public:
+    std::vector<std::shared_ptr<Neuron>> neurons {}; // List of neurons
+
+    // Constructor
+    Layer(int inputs, int out);
+
+    // Compute all the neurons
+    std::vector<std::shared_ptr<Unit>> forward(std::vector<std::shared_ptr<Unit>>& inputs);
+
+    // Get all the trainable parameters of the layer
+    std::vector<std::shared_ptr<Unit>> parameters();
+};
+
+
 
 // Linear Layer
 // Y = X @ W.T + B
@@ -161,7 +179,7 @@ struct Softmax: public Block {
         auto x = inputs[0];
         
         // Estabilidad numérica: restar el máximo de cada fila
-        auto axis = x->shape.size() - 1;
+        auto axis = x->getShape().size() - 1;
         auto max_x = max(x, axis);
         auto x_shifted = x - max_x; 
         
@@ -219,8 +237,8 @@ struct LayerNorm: public Block {
 
         auto X = inputs[0];
 
-        int axis = X->shape.size() - 1;
-        float d = static_cast<float>(X->shape[axis]);
+        int axis = X->getShape().size() - 1;
+        float d = static_cast<float>(X->getShape()[axis]);
 
         auto mean = sum(X, axis) / d;
 
@@ -258,8 +276,8 @@ struct SelfAttention : public Block {
 
     TensorList forward(TensorList inputs) override {
         auto X = inputs[0];
-        int batch_size = X->shape[0];
-        int seq_len = X->shape[1];
+        int batch_size = X->getShape()[0];
+        int seq_len = X->getShape()[1];
 
         auto Q = q_proj->forward({X})[0];
         auto K = k_proj->forward({X})[0];

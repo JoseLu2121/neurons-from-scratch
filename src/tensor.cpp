@@ -9,10 +9,16 @@
 using namespace std;
 
 // ====================
-// Constructors
+// Constructors & Factory
 // ====================
+
+shared_ptr<Tensor> Tensor::create(const vector<int>& shape_param, const vector<float>& data_param,
+                                  const vector<shared_ptr<Tensor>>& parents_param) {
+    return shared_ptr<Tensor>(new Tensor(shape_param, data_param, parents_param));
+}
+
 Tensor::Tensor(const vector<int>& shape_param, const vector<float>& data_param,
-       const vector<shared_ptr<Tensor>> parents_param) 
+       const vector<shared_ptr<Tensor>>& parents_param) 
       // Setting the params given to the attributes of the tensor
     : data(nullptr), 
       shape(shape_param), 
@@ -42,13 +48,15 @@ Tensor::Tensor(const vector<int>& shape_param, const vector<float>& data_param,
         }
     }
 
-    // We initialize the Strides vector
-    strides.resize(shape.size());
-    // The last one is always 1
-    strides[shape.size() - 1] = 1;
-    // Each element is himself times the previous element from the right
-    for (int i = shape.size() - 2; i >= 0; --i) {
-        strides[i] = strides[i + 1] * shape[i + 1];
+    // We initialize the Strides vector safely avoiding segfaults if shape is empty
+    if (!shape.empty()) {
+        strides.resize(shape.size());
+        // The last one is always 1
+        strides.back() = 1;
+        // Each element is himself times the previous element from the right
+        for (int i = (int)shape.size() - 2; i >= 0; --i) {
+            strides[i] = strides[i + 1] * shape[i + 1];
+        }
     }
 }
 
@@ -69,7 +77,6 @@ Tensor::Tensor(const Tensor& other)
 void Tensor::printElements(int count) const {
     cout << "Elementos del tensor" << endl;
     for (int i = 0; i < count; i++) {
-
         cout << "Elemento " << i << ": " << getData()[i] << endl;
     }
 }
@@ -105,7 +112,7 @@ void Tensor::info(int max_size) const {
     cout << ")" << endl;
 
     // We only print the elements if the tensor is small 
-    if (total_size <= max_size) {
+    if (total_size <= (size_t)max_size) {
         cout << "  Data: [ ";
         for (int i = 0; i < max_size; i++) cout << data[i] << " ";
         cout << "]" << endl;
@@ -119,28 +126,29 @@ void Tensor::info(int max_size) const {
 // Size and view manipulation
 // ===================
 
-void Tensor::reshape(const vector<int>& new_shape) {
-
-    int new_total_size = element_vector_product(new_shape);
+shared_ptr<Tensor> Tensor::reshape(const vector<int>& new_shape) {
+    auto view = std::shared_ptr<Tensor>(new Tensor(*this));
+    size_t new_total_size = element_vector_product(new_shape);
     if (new_total_size != this->total_size) throw std::runtime_error("The new tensor shape needs to have " + 
         std::to_string(this->total_size) + " elements");
 
-
-    this->shape = new_shape;
+    view->shape = new_shape;
 
     if (new_shape.empty()) {
-        this->strides.clear();
-        return;
+        view->strides.clear();
+        return view;
     }
 
     // We initialize the Strides vector
-    this->strides.resize(new_shape.size());
+    view->strides.resize(new_shape.size());
     // The last one is always 1
-    this->strides.back() = 1;
+    view->strides.back() = 1;
     // Each element is himself times the previous element from the right
-    for (int i = shape.size() - 2; i >= 0; --i) {
-        this->strides[i] = this->strides[i + 1] * this->shape[i + 1];
+    for (int i = (int)view->shape.size() - 2; i >= 0; --i) {
+        view->strides[i] = view->strides[i + 1] * view->shape[i + 1];
     }
+
+    return view;
 }
 
 shared_ptr<Tensor> Tensor::batch_view(int index, bool keep_dim) {
@@ -150,7 +158,7 @@ shared_ptr<Tensor> Tensor::batch_view(int index, bool keep_dim) {
 
     if(index < 0 || index >= n_batch) throw std::runtime_error("Batch index is out of bounds");
 
-    auto view = std::make_shared<Tensor>(*this);
+    auto view = std::shared_ptr<Tensor>(new Tensor(*this));
     int offset = index * this->strides[0];
 
     view->data = std::shared_ptr<float[]>(this->data, this->data.get() + offset);
@@ -169,9 +177,35 @@ shared_ptr<Tensor> Tensor::batch_view(int index, bool keep_dim) {
     return view;
 }
 
+
+std::shared_ptr<Tensor> Tensor::slice(int start_idx, int end_idx) {
+    if(this->getDimension() < 1) {
+        throw std::runtime_error("Tensor must have at least 1 dimension to slice");
+    }
+
+    int n_batch = this->shape[0];
+    if(start_idx < 0 || end_idx > n_batch || start_idx >= end_idx) {
+        throw std::runtime_error("Slice indices are out of bounds or invalid");
+    }
+
+    auto view = std::shared_ptr<Tensor>(new Tensor(*this));
+    
+    int offset = start_idx * this->strides[0];
+
+    view->data = std::shared_ptr<float[]>(this->data, this->data.get() + offset);
+
+    view->shape[0] = end_idx - start_idx; 
+    
+    view->total_size = element_vector_product(view->shape);
+    
+    view->parents = {shared_from_this()};
+
+    return view;
+}
+
 shared_ptr<Tensor> Tensor::view_to_3d() {
     // We create a view of the tensor
-    auto view = make_shared<Tensor>(*this); 
+    auto view = std::shared_ptr<Tensor>(new Tensor(*this));
 
     if(view->getDimension() == 1){
         view->strides.push_back(0); 
@@ -187,7 +221,7 @@ shared_ptr<Tensor> Tensor::view_to_3d() {
 
 shared_ptr<Tensor> Tensor::view_to_gemm(bool as_b_term) {
     
-    auto view = make_shared<Tensor>(*this);
+    auto view = std::shared_ptr<Tensor>(new Tensor(*this));
     // Same logic as view_to_3d, but depends on whether the tensor is the second operand
     if(view->getDimension() == 1){
         if(as_b_term){
@@ -195,7 +229,7 @@ shared_ptr<Tensor> Tensor::view_to_gemm(bool as_b_term) {
             view->strides = {0, view->strides[0], 0};
         } else{
             view->shape = {1,1,view->shape[0]};
-            view->strides = {0,0, view->strides[0],};
+            view->strides = {0,0, view->strides[0]};
         }
     }
     else if(view->getDimension() == 2){
@@ -235,9 +269,9 @@ vector<int> Tensor::broadcast_shapes(const vector<int>& shape_a, const vector<in
         int dim_b = (i_b >= 0) ? shape_b[i_b] : 1;
         
         if (dim_a != dim_b && dim_a != 1 && dim_b != 1) {
-             out_shape[i_out] = std::max(dim_a, dim_b);
+            throw std::runtime_error("Tensors cannot be broadcasted together");
         } else {
-             out_shape[i_out] = std::max(dim_a, dim_b);
+            out_shape[i_out] = std::max(dim_a, dim_b);
         }
         
         i_a--; i_b--; i_out--;
@@ -248,14 +282,14 @@ vector<int> Tensor::broadcast_shapes(const vector<int>& shape_a, const vector<in
 shared_ptr<Tensor> Tensor::broadcast_to(const vector<int>& target_shape) {
     if (this->shape == target_shape) return shared_from_this();
 
-    auto view = make_shared<Tensor>(*this);
+    auto view = std::shared_ptr<Tensor>(new Tensor(*this));
     view->shape = target_shape;
     view->strides.resize(target_shape.size());
     
     int offset = (int)target_shape.size() - (int)this->shape.size();
     
-    for (int i = 0; i < target_shape.size(); ++i) {
-        int original_idx = i - offset;
+    for (size_t i = 0; i < target_shape.size(); ++i) {
+        int original_idx = (int)i - offset;
         
         if (original_idx < 0) {
             // New dimension (broadcasted) -> stride 0
@@ -276,7 +310,7 @@ shared_ptr<Tensor> Tensor::broadcast_to(const vector<int>& target_shape) {
 shared_ptr<Tensor> Tensor::compute_binary_op(shared_ptr<Tensor> b, BinaryOp op){
     // Calculate output shape
     vector<int> out_shape = broadcast_shapes(this->shape, b->shape);
-    auto out = std::make_shared<Tensor>(out_shape);
+    auto out = Tensor::create(out_shape);
 
     // Create broadcasted views of inputs
     auto a_view = this->broadcast_to(out_shape);
@@ -292,8 +326,8 @@ shared_ptr<Tensor> Tensor::compute_binary_op(shared_ptr<Tensor> b, BinaryOp op){
 }
 
 shared_ptr<Tensor> Tensor::compute_unary_op(UnaryOp op) {
-    auto out = std::make_shared<Tensor>(this->shape);
-    TensorInfo i_out = out.get()->getInfo();
+    auto out = Tensor::create(this->shape);
+    TensorInfo i_out = out->getInfo();
     
     Device::get()->unary(this->getInfo(), i_out, op);
 
@@ -303,8 +337,8 @@ shared_ptr<Tensor> Tensor::compute_unary_op(UnaryOp op) {
 shared_ptr<Tensor> Tensor::compute_reduce_op(int dim, ReduceOp op) {
     vector<int> out_shape = this->shape;
     out_shape[dim] = 1;
-    auto out = std::make_shared<Tensor>(out_shape);
-    TensorInfo i_out = out.get()->getInfo();
+    auto out = Tensor::create(out_shape);
+    TensorInfo i_out = out->getInfo();
     
     Device::get()->reduce(this->getInfo(), i_out, dim, op);
 
@@ -325,7 +359,7 @@ shared_ptr<Tensor> Tensor::compute_matmul(shared_ptr<Tensor> b) {
         out_shape = {batch_out, a_view->shape[1], b_view->shape[2]};
     }
 
-    auto out = std::make_shared<Tensor>(out_shape);
+    auto out = Tensor::create(out_shape);
 
     shared_ptr<Tensor> out_view;
     if (out_shape.size() == 2) {
@@ -334,9 +368,9 @@ shared_ptr<Tensor> Tensor::compute_matmul(shared_ptr<Tensor> b) {
        out_view = out; 
     }
 
-    TensorInfo i_a = a_view.get()->getInfo();
-    TensorInfo i_b = b_view.get()->getInfo();
-    TensorInfo i_out = out_view.get()->getInfo();
+    TensorInfo i_a = a_view->getInfo();
+    TensorInfo i_b = b_view->getInfo();
+    TensorInfo i_out = out_view->getInfo();
     
     Device::get()->gemm(i_a, i_b, i_out);
 
@@ -347,7 +381,7 @@ shared_ptr<Tensor> Tensor::compute_gather(shared_ptr<Tensor> ind) {
     auto out_shape = ind->shape;
     out_shape.push_back(this->shape.back());
 
-    auto out = std::make_shared<Tensor>(out_shape);
+    auto out = Tensor::create(out_shape);
     TensorInfo i_w = this->getInfo();
     TensorInfo i_ind = ind->getInfo();
     TensorInfo i_out = out->getInfo();
@@ -368,18 +402,18 @@ void Tensor::compute_scatter_add(shared_ptr<Tensor> ind, shared_ptr<Tensor> inco
 void Tensor::im2col(float* workspace,int out_height, int out_width,
     int kernel_height, int kernel_width, int stride, int padding) {
 
-    for(size_t row = 0; row < out_height; row++){
-        for(size_t col = 0; col < out_width; col++){
-            for(size_t channel = 0; channel < this->shape[1]; channel++){
+    for(size_t row = 0; row < (size_t)out_height; row++){
+        for(size_t col = 0; col < (size_t)out_width; col++){
+            for(size_t channel = 0; channel < (size_t)this->shape[1]; channel++){
                 int actual_window = col + row * out_width;
                 int window_size = this->shape.at(1)  * kernel_height * kernel_width;
                 int channel_offset = (channel * kernel_height * kernel_width);
                 float* col_ptr = &workspace[actual_window * window_size + channel_offset];
-                for(size_t k_h = 0; k_h < kernel_height; k_h++) {
+                for(size_t k_h = 0; k_h < (size_t)kernel_height; k_h++) {
                     int y = row * stride - padding + k_h;
-                    for(size_t k_w = 0; k_w < kernel_width; k_w++){
+                    for(size_t k_w = 0; k_w < (size_t)kernel_width; k_w++){
                         int x = col * stride - padding + k_w;
-                        if(x < 0 || y < 0 || x > this->shape.at(3) || y > this->shape.at(2)) *col_ptr = 0.0f;
+                        if(x < 0 || y < 0 || x >= this->shape.at(3) || y >= this->shape.at(2)) *col_ptr = 0.0f;
                         else  {
                             float* pixel_ptr = &this->data[(y * this->strides.at(2)) + (x * this->strides.at(3)) +
                             (channel * this->strides.at(1))];
@@ -389,11 +423,11 @@ void Tensor::im2col(float* workspace,int out_height, int out_width,
                         col_ptr++;
                     }
                 }
+            }
         }
-    }
-}   
+    }   
 
-};
+}
 
 void Tensor::col2im (const float* data_col, int out_height, int out_width,
                     int kernel_height, int kernel_width, int stride, int padding) {
@@ -429,7 +463,7 @@ void Tensor::col2im (const float* data_col, int out_height, int out_width,
         }
     }
     
-};
+}
 
 shared_ptr<Tensor> Tensor::compute_conv2d(std::shared_ptr<Tensor>  w, int stride, int padding) {
 
@@ -466,7 +500,7 @@ shared_ptr<Tensor> Tensor::compute_conv2d(std::shared_ptr<Tensor>  w, int stride
 
         std::vector<float> w_view_data(w->getData(), w->getData() + w->total_size);
         std::vector<int> w_view_shape{c_out, (c_in * k_h * k_w)};
-        auto w_view = std::make_shared<Tensor>(w_view_shape,w_view_data)->view_to_gemm(false);
+        auto w_view = Tensor::create(w_view_shape, w_view_data)->view_to_gemm(false);
 
         
         for (int b = 0; b < n_batch; b++) {
@@ -476,13 +510,13 @@ shared_ptr<Tensor> Tensor::compute_conv2d(std::shared_ptr<Tensor>  w, int stride
 
             std::vector<float> workspace_data{workspace, workspace + workspace_size};
             std::vector<int> workspace_tensor_shape = {(c_in * k_h * k_w), (h_out * w_out)};
-            auto workspace_tensor = std::make_shared<Tensor>(workspace_tensor_shape, workspace_data);
+            auto workspace_tensor = Tensor::create(workspace_tensor_shape, workspace_data);
             workspace_tensor->strides = {1, (c_in * k_h * k_w)};
 
             shared_ptr<Tensor> im2col_tensor = workspace_tensor->view_to_gemm(true);
 
             std::vector<int> batch_out_shape = {c_out, (h_out * w_out)};
-            auto batch_out = std::make_shared<Tensor>(batch_out_shape)->view_to_3d(); 
+            auto batch_out = Tensor::create(batch_out_shape)->view_to_3d();
             auto batch_out_info = batch_out->getInfo(); 
 
             Device::get()->gemm(w_view->getInfo(), im2col_tensor->getInfo(), batch_out_info);
@@ -500,7 +534,7 @@ shared_ptr<Tensor> Tensor::compute_conv2d(std::shared_ptr<Tensor>  w, int stride
     }
 
 shared_ptr<Tensor> Tensor::compute_flatten() {
-    auto out = make_shared<Tensor>(*this); 
+    auto out = std::shared_ptr<Tensor>(new Tensor(*this));
     
     int batch_size = this->shape[0];
     int elements_per_batch = this->total_size / batch_size;
@@ -515,23 +549,23 @@ shared_ptr<Tensor> Tensor::compute_flatten() {
 // Tensor initializers
 // ===================
 shared_ptr<Tensor> Tensor::zeros(const vector<int>& shape) {
-    return make_shared<Tensor>(shape, vector<float>(element_vector_product(shape),0.0f));
+    return Tensor::create(shape, vector<float>(element_vector_product(shape),0.0f));
 }
 
 shared_ptr<Tensor> Tensor::ones(const vector<int>& shape) {
-    return make_shared<Tensor>(shape, vector<float>(element_vector_product(shape),1.0f));
+    return Tensor::create(shape, vector<float>(element_vector_product(shape),1.0f));
 }
 
 shared_ptr<Tensor> Tensor::random(const vector<int>& shape, float min_val, float max_val) {
     size_t size = element_vector_product(shape);
     vector<float> random_data(size);
     
-    static random_device rd; // Static so we don't need to reinializate the seed
+    static random_device rd;
     static mt19937 gen(rd());
     uniform_real_distribution<> dis(min_val, max_val);
     for (auto& val : random_data) val = dis(gen);
 
-    return make_shared<Tensor>(shape, random_data);
+    return Tensor::create(shape, random_data);
 }
 
 // ===================
@@ -596,4 +630,3 @@ void Tensor::deserialize(std::ifstream& in)  {
     in.read(reinterpret_cast<char*>(this->getData()), total_elements * sizeof(float));
 
 }
-
