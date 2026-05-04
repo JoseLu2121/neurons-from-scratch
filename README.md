@@ -1,4 +1,8 @@
-# learntorch
+<p align="center">
+  <img src="figures/logo.svg" width="300"/>
+</p>
+
+# LearnTorch
 
 A deep learning library written in C++ with Python bindings via [pybind11](https://github.com/pybind/pybind11).
 
