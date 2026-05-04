@@ -14,13 +14,19 @@ A deep learning library written in C++ with Python bindings via [pybind11](https
 
 ## Installation
 
-### Option 1 — pip install (recommended)
+### Option 1 — install from GitHub (recommended)
+
+```bash
+pip install git+https://github.com/JoseLu2121/LearnTorch.git
+```
+
+### Option 2 — pip install (local clone)
 
 ```bash
 pip install .
 ```
 
-### Option 2 — build in place
+### Option 3 — build in place
 
 ```bash
 pip install pybind11
