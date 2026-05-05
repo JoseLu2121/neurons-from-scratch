@@ -12,6 +12,8 @@ Trainer::Trainer(std::shared_ptr<Block> m,
 // Fit Method: Train the model
 void Trainer::fit(std::shared_ptr<Tensor> x_train, 
                   std::shared_ptr<Tensor> y_train, 
+                  std::shared_ptr<Tensor> x_val, 
+                  std::shared_ptr<Tensor> y_val, 
                   int epochs,
                   int batch_size,
                   int print_every) {
@@ -24,7 +26,6 @@ void Trainer::fit(std::shared_ptr<Tensor> x_train,
     for (int epoch = 0; epoch < epochs; epoch++) {
         
         float epoch_loss = 0.0f;
-        float epoch_acc = 0.0f;
 
         for ( int b = 0; b < num_batches; b++){
 
@@ -44,8 +45,6 @@ void Trainer::fit(std::shared_ptr<Tensor> x_train,
             // 3. Loss
             auto loss = criterion->forward(prediction, y_batch);
 
-            auto accuracy = calculate_accuracy(prediction,y_batch);
-
             // 4. Backward
             loss->backward();
 
@@ -53,12 +52,12 @@ void Trainer::fit(std::shared_ptr<Tensor> x_train,
             optimizer->step();
 
             epoch_loss += loss->getData()[0];
-            epoch_acc += accuracy;
         }
 
         // 6. Logging
         if (epoch % print_every == 0 || epoch == epochs - 1) {
-            std::cout << "Epoch " << epoch << " | Loss: " << epoch_loss / num_batches << " | Accuracy:" <<  epoch_acc / num_batches << std::endl;
+            float accuracy = calculate_accuracy(x_val, y_val);
+            std::cout << "Epoch " << epoch << " | Loss: " << epoch_loss / num_batches << " | Accuracy:" <<  accuracy << std::endl;
         }
 
 
@@ -67,24 +66,27 @@ void Trainer::fit(std::shared_ptr<Tensor> x_train,
     std::cout << "--- Training finalised---" << std::endl;
 }
 
-float  Trainer::calculate_accuracy(std::shared_ptr<Tensor> a, std::shared_ptr<Tensor> b) {
+float  Trainer::calculate_accuracy(std::shared_ptr<Tensor> x_val, std::shared_ptr<Tensor> y_val) {
     std::shared_ptr<Tensor> a_predictions;
     std::shared_ptr<Tensor> b_labels;
-    if(a->getDimension() == 2){
-        a_predictions = argmax(a,1);
+
+    auto prediction = model->forward({x_val})[0];
+
+    if(prediction->getDimension() == 2){
+        a_predictions = argmax(prediction,1);
 
     } else {
-        a_predictions = argmax(a,2);
+        a_predictions = argmax(prediction,2);
     }
 
-    if(b->getDimension() == a->getDimension()){
-        if(b->getDimension() == 2){
-            b_labels = argmax(b, 1);
+    if(y_val->getDimension() == prediction->getDimension()){
+        if(y_val->getDimension() == 2){
+            b_labels = argmax(y_val, 1);
         } else {
-            b_labels = argmax(b, 2);
+            b_labels = argmax(y_val, 2);
         }
     } else {
-        b_labels = b;
+        b_labels = y_val;
     }
     int count_success = 0;
     

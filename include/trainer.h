@@ -19,6 +19,8 @@ public:
 
     void fit(std::shared_ptr<Tensor> x_train, 
              std::shared_ptr<Tensor> y_train, 
+             std::shared_ptr<Tensor> x_val, 
+             std::shared_ptr<Tensor> y_val, 
              int epochs, 
              int batch_size,
              int print_every = 10);

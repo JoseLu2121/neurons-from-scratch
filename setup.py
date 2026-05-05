@@ -32,7 +32,7 @@ ext_modules = [
 
 setup(
     name="learntorch",
-    version="0.1",
+    version="1.0",
     packages=find_packages(),
     package_data={"learntorch": ["py.typed", "*.pyi"]},
     ext_modules=ext_modules,

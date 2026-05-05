@@ -19,8 +19,6 @@ struct Layer : std::enable_shared_from_this<Layer> {
     std::vector<std::shared_ptr<Unit>> parameters();
 };
 
-
-
 // Linear Layer
 // Y = X @ W.T + B
 struct Linear : public Block {
@@ -189,7 +187,6 @@ struct Softmax: public Block {
 
         return { out };
     }
-
 
 };
 

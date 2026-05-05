@@ -38,6 +38,7 @@ PYBIND11_MODULE(_learntorch, m) {
         .def("__truediv__", [](std::shared_ptr<Tensor> a, std::shared_ptr<Tensor> b) { return a / b; })
         .def("__truediv__", [](std::shared_ptr<Tensor> a, float val) { return a / val; })
         .def("__matmul__", [](std::shared_ptr<Tensor> a, std::shared_ptr<Tensor> b) { return matmul(a, b); })
+        .def("slice", &Tensor::slice, py::arg("start"), py::arg("end"))
         .def("__repr__", [](const Tensor &t) {
             std::string s = "Tensor(shape=[";
             auto shape = t.getShape();
@@ -140,7 +141,7 @@ PYBIND11_MODULE(_learntorch, m) {
     // --- TRAINER ---
     py::class_<Trainer>(m, "Trainer")
         .def(py::init<std::shared_ptr<Block>, std::shared_ptr<Optimizer>, std::shared_ptr<Loss>>())
-        .def("fit", &Trainer::fit, py::arg("x_train"), py::arg("y_train"), py::arg("epochs"), py::arg("batch_size"), py::arg("print_every")=1);
+        .def("fit", &Trainer::fit, py::arg("x_train"), py::arg("y_train"), py::arg("x_val"), py::arg("y_val"),  py::arg("epochs"), py::arg("batch_size"), py::arg("print_every")=1);
 
     // --- FUNCIONES GLOBALES ---
     m.def("matmul", &matmul);
