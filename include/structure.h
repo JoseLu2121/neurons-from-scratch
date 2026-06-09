@@ -75,7 +75,7 @@ struct Join : public Block {
 
     Join(JoinMode m = JoinMode::SUM) 
         : Block("Join"), mode(m) {}
-
+ 
     TensorList forward(TensorList inputs) override {
         if (inputs.empty()) return {};
 
@@ -83,18 +83,13 @@ struct Join : public Block {
             auto accum = inputs[0];
             for(size_t i = 1; i < inputs.size() ; i++){
                 accum = accum + inputs[i];
-
             }
-
             return { accum };
         }
-
         return {inputs[0]};
-
     }
 
 };
-
 
 struct Identity : public Block {
     Identity() : Block("Identity") {}

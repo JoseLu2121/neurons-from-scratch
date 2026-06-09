@@ -9,7 +9,6 @@ std::shared_ptr<Unit> operator/(const std::shared_ptr<Unit>& a, const std::share
 std::shared_ptr<Unit> operatorpow(const std::shared_ptr<Unit>& a, const std::shared_ptr<Unit>& b);
 std::shared_ptr<Unit> relu(const std::shared_ptr<Unit>& a);
 std::shared_ptr<Unit> operator_tanh(const std::shared_ptr<Unit>& a);
-
 std::shared_ptr<Tensor> operator+(std::shared_ptr<Tensor> a, std::shared_ptr<Tensor> b);
 std::shared_ptr<Tensor> matmul(std::shared_ptr<Tensor> a, std::shared_ptr<Tensor> b, bool require_grad=true);
 std::shared_ptr<Tensor> relu(std::shared_ptr<Tensor> a);

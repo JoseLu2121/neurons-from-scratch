@@ -112,11 +112,11 @@ const int MR = 4;
 const int NR = 16;
 
 // used to pack an B block
-void pack_block(float* target,const float* source, int current_k, int current_n, int stride_b) {
+void pack_block(float* target, const float* source, int current_k, int current_n, int stride_k, int stride_n) {
     int idx = 0;
     for(int k = 0; k < current_k; k++) {
         for (int j = 0; j < current_n; j++) {
-            target[idx++] = source[k * stride_b + j];
+            target[idx++] = source[k * stride_k + j * stride_n];
         }
     }
 };
@@ -181,12 +181,15 @@ static void micro_kernel_avx2(const float* A, const float* B, float* C,
     _mm256_storeu_ps(C + 3*stride_out + 8, _mm256_add_ps(_mm256_loadu_ps(C + 3*stride_out + 8), c31));
 }
 
-void gepm(float* packed_B, const float* packed_A,
-          int current_k, int current_n, int M, 
-          float* out_panel_start, const float* b_block_start, 
-          int stride_b, int stride_out) {
-          
-    pack_block(packed_B, b_block_start, current_k, current_n, stride_b);
+
+
+
+void gepb(float* packed_B, const float* packed_A,
+          int current_k, int current_n, int M,
+          float* out_panel_start, const float* b_block_start,
+          int stride_k_b, int stride_n_b, int stride_out) {
+
+    pack_block(packed_B, b_block_start, current_k, current_n, stride_k_b, stride_n_b);
 
     for (int i = 0; i < M; i += MR) {
         int current_m = std::min(MR, M - i); // last iteration
@@ -212,11 +215,11 @@ void gepm(float* packed_B, const float* packed_A,
 }
 
 // used to pack an A panel of MC,KC dimensions into a contiguous memory
-void pack_panel(float* target,const float* source, int current_k, int m, int stride_a) {
+void pack_panel(float* target, const float* source, int current_k, int m, int stride_m, int stride_k) {
     int idx = 0;
     for(int i = 0; i < m; i++) {
         for (int k = 0; k < current_k; k++) {
-            target[idx++] = source[i * stride_a + k];
+            target[idx++] = source[i * stride_m + k * stride_k];
         }
     }
 };
@@ -238,18 +241,18 @@ void GEMMOptimizedBackend::gemm(const TensorInfo& a, const TensorInfo& b, Tensor
 
         // first loop por GEPP, we slice by K
         for(int k = 0; k < K; k += KC){
-            int current_k = std::min(KC, K - k); // if the last iteration has less k
-            const float* a_panel_start = batch_a + k;
-            // pack A step
-            pack_panel(packed_A, a_panel_start, current_k, M, a.strides[1]); 
+            int current_k = std::min(KC, K - k);
+            const float* a_panel_start = batch_a + k * a.strides[2];
+            // pack A: stride between rows = a.strides[1], stride along K = a.strides[2]
+            pack_panel(packed_A, a_panel_start, current_k, M, a.strides[1], a.strides[2]);
             // GEPP inside loop
             for(int n = 0; n < N; n += NC){
                 int current_n = std::min(NC, N - n);
-                const float* b_block_start = batch_b + (k * b.strides[1]) + n;
+                const float* b_block_start = batch_b + (k * b.strides[1]) + n * b.strides[2];
                 float* out_panel_start = batch_out + n;
 
-                gepm(packed_B, packed_A, current_k, current_n, M,
-                     out_panel_start, b_block_start, b.strides[1], out.strides[1]);
+                gepb(packed_B, packed_A, current_k, current_n, M,
+                     out_panel_start, b_block_start, b.strides[1], b.strides[2], out.strides[1]);
             };
         }
     }
@@ -408,53 +411,4 @@ void GEMMOptimizedBackend::scatter_add(const TensorInfo& indexes, const TensorIn
             }
         }
     }
-}
-
-static void convolution_kernel(
-    const TensorInfo& input,
-    const TensorInfo& w,
-    const TensorInfo& b,
-    TensorInfo& out,
-    int stride,
-    int padding) {
-
-    if (input.dim != 4 || w.dim != 4 || out.dim != 4) {
-        throw std::runtime_error("convolution_kernel expects 4D tensors");
-    }
-
-    const int n_batch = input.shape[0];
-    const int c_in = input.shape[1];
-    const int h_in = input.shape[2];
-    const int w_in = input.shape[3];
-
-    const int c_out = w.shape[0];
-    const int c_w = w.shape[1];
-    const int k_h = w.shape[2];
-    const int k_w = w.shape[3];
-
-    const int h_out = out.shape[2];
-    const int w_out = out.shape[3];
-
-    if (c_in != c_w) {
-        throw std::runtime_error("convolution_kernel channel mismatch between input and weights");
-    }
-    if (out.shape[0] != n_batch || out.shape[1] != c_out) {
-        throw std::runtime_error("convolution_kernel output shape does not match N/C_out");
-    }
-    if (b.dim != 1 || b.shape[0] != c_out) {
-        throw std::runtime_error("convolution_kernel bias must have shape [C_out]");
-    }
-
-    if (stride <= 0) {
-        throw std::runtime_error("convolution_kernel expects stride > 0");
-    }
-    if (padding < 0) {
-        throw std::runtime_error("convolution_kernel expects padding >= 0");
-    }
-
-    if (h_out != ((h_in + 2 * padding - k_h) / stride + 1) ||
-        w_out != ((w_in + 2 * padding - k_w) / stride + 1)) {
-        throw std::runtime_error("convolution_kernel output shape is inconsistent with stride/padding");
-    }
-
 }

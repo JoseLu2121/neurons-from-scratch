@@ -25,7 +25,6 @@ inline int getIndex(int index, const TensorInfo& tensor){
 
 }
 
-
 // A basic binary operation of two tensors
 void CPUBackendOptimized::binary(const TensorInfo& a, const TensorInfo& b, TensorInfo& out, BinaryOp op){
 

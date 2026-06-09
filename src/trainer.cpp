@@ -72,6 +72,17 @@ float  Trainer::calculate_accuracy(std::shared_ptr<Tensor> x_val, std::shared_pt
 
     auto prediction = model->forward({x_val})[0];
 
+    if(prediction->getShape().back() == 1) {
+        int n = prediction->getShape()[0];
+        int count = 0;
+        for(int i = 0; i < n; i++) {
+            int pred_class = (prediction->getData()[i] > 0.5f) ? 1 : 0;
+            int true_class = static_cast<int>(y_val->getData()[i]);
+            if(pred_class == true_class) count++;
+        }
+        return (float)count / n;
+    }
+
     if(prediction->getDimension() == 2){
         a_predictions = argmax(prediction,1);
 

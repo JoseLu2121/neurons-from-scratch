@@ -1,7 +1,7 @@
 #pragma once
 #include "block.h"
-#include "ops.h"       
-#include <stdexcept> 
+#include "ops.h"
+#include <stdexcept>
 #include "neuron.h"
 
 // A layer of neurons class
@@ -28,9 +28,7 @@ struct Linear : public Block {
     // Constructor
     Linear(int in_size, int out_size) : Block("Linear") {
         // Shape: (Out,In)
-        W = Tensor::random({out_size, in_size},-0.01f,0.01f);
-        
-        // Shape: (1,Out)
+        W = Tensor::random({out_size, in_size}, -0.01f, 0.01f);
         B = Tensor::zeros({1, out_size});
     }
 
@@ -107,7 +105,7 @@ struct Conv2D: public Block {
         : Block("Conv2D"), stride(stride), padding(padding) {
         
         W = Tensor::random({out_channels,in_channels,kernel_size,kernel_size});
-        B = Tensor::zeros({out_channels});
+        B = Tensor::zeros({1, out_channels, 1, 1});
             
     };
 
@@ -282,8 +280,9 @@ struct SelfAttention : public Block {
 
         auto K_T = transpose_view(K); 
         auto scores = matmul(Q, K_T);
-
-        float scale = std::sqrt(static_cast<float>(embed_dim));
+        
+        // essential for softmax not being too sharpen (one hot bigger values)
+        float scale = std::sqrt(static_cast<float>(embed_dim)); // d^k on paper
         auto scaled_scores = scores / scale;
 
         auto mask = Tensor::zeros({batch_size, seq_len, seq_len});

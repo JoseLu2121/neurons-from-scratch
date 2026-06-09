@@ -15,3 +15,6 @@ inference.cpp
 *_weights
 .vscode/*
 PKG-*
+__pycache__/
+*.pyc
+*.pyo

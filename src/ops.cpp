@@ -546,9 +546,7 @@ std::shared_ptr<Tensor> conv2d(std::shared_ptr<Tensor>  input, std::shared_ptr<T
         std::vector<float> w_data(w->getData(), w->getData() + w->getSize());
         auto w_2d = Tensor::create({c_out, c_in * k_h * k_w}, w_data);
         auto w_T = transpose_view(w_2d);
-        
-        cout << "entramos backward conv2d" << endl;
-        
+                
         for(int b = 0; b < n_batch; b++) {
             auto x_b = input->batch_view(b, true);
             auto dY_b = raw_out->getGrad()->batch_view(b, true);
@@ -575,7 +573,6 @@ std::shared_ptr<Tensor> conv2d(std::shared_ptr<Tensor>  input, std::shared_ptr<T
         }
         
         delete[] col_buffer;
-        cout << "salimos backward conv2d" << endl;
     });
 
     return out;
